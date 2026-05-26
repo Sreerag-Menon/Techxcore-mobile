@@ -5,7 +5,10 @@ import {
   asNumber,
   asString,
   extractItem,
+  getAccessTokenFromResponse,
   post,
+  postWithResponse,
+  refreshStoredAuthToken,
 } from '../../api';
 import { ENDPOINTS } from '../../api/endpoints';
 import { APP_CONFIG } from '../../constants/config';
@@ -42,7 +45,28 @@ function extractErrorMessage(error: unknown): string {
   );
 }
 
-function normalizeLoginResponse(payload: unknown): LoginResponse | null {
+function extractSessionId(payload: unknown): string {
+  const data = extractItem<Record<string, unknown>>(payload, [
+    'member',
+    'user',
+    'account',
+  ]);
+
+  return asString(data?.session_id ?? data?.sessionId ?? '');
+}
+
+async function clearPersistedAuth(): Promise<void> {
+  await Promise.allSettled([
+    secureStorage.removeItem(APP_CONFIG.TOKEN_KEY),
+    secureStorage.removeItem(APP_CONFIG.SESSION_KEY),
+    asyncStorage.removeItem(APP_CONFIG.USER_KEY),
+  ]);
+}
+
+function normalizeLoginResponse(
+  payload: unknown,
+  auth: { token: string; sessionId: string },
+): LoginResponse | null {
   const data = extractItem<Record<string, unknown>>(payload, [
     'member',
     'user',
@@ -51,21 +75,20 @@ function normalizeLoginResponse(payload: unknown): LoginResponse | null {
 
   if (!data) return null;
 
-  const token = asString(
-    data.token ?? data.access_token ?? data.accessToken ?? '',
-  );
-
-  if (!token) return null;
+  const token = asString(auth.token);
+  const session_id = asString(auth.sessionId);
+  if (!token || !session_id) return null;
 
   return {
     token,
+    session_id,
     member_id: asNumber(data.member_id ?? data.user_id ?? data.id),
     member_type: asString(
       data.member_type ?? data.role_name ?? data.role ?? 'student',
     ),
     first_name: asString(data.first_name ?? data.firstname ?? data.name),
     last_name: asString(data.last_name ?? data.lastname),
-    email: asString(data.email ?? data.member_login),
+    email: asString(data.email ?? data.member_login ?? data.memberLogin),
     organization_id: asNumber(
       data.organization_id ?? data.org_id ?? data.institution_id,
     ),
@@ -89,14 +112,21 @@ export const loginUser = createAsyncThunk<
   { rejectValue: string }
 >('auth/loginUser', async (credentials, { rejectWithValue }) => {
   try {
-    const response = await post<unknown>(ENDPOINTS.AUTH.LOGIN, credentials);
-    const data = normalizeLoginResponse(response);
+    const response = await postWithResponse<unknown>(
+      ENDPOINTS.AUTH.LOGIN,
+      credentials,
+      { skipAuth: true },
+    );
+    const token = getAccessTokenFromResponse(response);
+    const sessionId = extractSessionId(response.data);
+    const data = normalizeLoginResponse(response.data, { token, sessionId });
 
     if (!data) {
-      return rejectWithValue('Invalid login response: missing token');
+      return rejectWithValue('Invalid login response: missing auth header or session');
     }
 
     await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, data.token);
+    await secureStorage.setItem(APP_CONFIG.SESSION_KEY, data.session_id);
     await asyncStorage.setItem(APP_CONFIG.USER_KEY, data);
     return data;
   } catch (error) {
@@ -111,24 +141,44 @@ export const restoreSession = createAsyncThunk<
   { rejectValue: string }
 >('auth/restoreSession', async (_, { rejectWithValue }) => {
   try {
-    const token = await secureStorage.getItem(APP_CONFIG.TOKEN_KEY);
-    if (!token) return rejectWithValue('No persisted session');
-    const cachedUser = await asyncStorage.getItem<LoginResponse>(APP_CONFIG.USER_KEY);
+    const [token, sessionId, cachedUser] = await Promise.all([
+      secureStorage.getItem(APP_CONFIG.TOKEN_KEY),
+      secureStorage.getItem(APP_CONFIG.SESSION_KEY),
+      asyncStorage.getItem<LoginResponse>(APP_CONFIG.USER_KEY),
+    ]);
+
+    if (!token || !sessionId) {
+      await clearPersistedAuth();
+      return rejectWithValue('No persisted session');
+    }
+
+    const hydratedCachedUser = cachedUser
+      ? {
+          ...cachedUser,
+          token,
+          session_id: cachedUser.session_id || sessionId,
+        }
+      : null;
 
     // Optionally fetch fresh session info
     try {
-      const response = await post<unknown>(ENDPOINTS.AUTH.SESSION_INFO, {});
-      const user = normalizeLoginResponse(response);
+      const response = await post<unknown>(ENDPOINTS.AUTH.SESSION_INFO, { sessionId });
+      const user = normalizeLoginResponse(response, { token, sessionId });
 
       if (user) {
         await asyncStorage.setItem(APP_CONFIG.USER_KEY, user);
+        return { token, user };
       }
-
-      return { token, user: user ?? cachedUser };
     } catch {
-      // Session info failed – return just the token; the UI can handle re-auth
-      return { token, user: cachedUser };
+      // Network/transient restore failure – fall back to the cached user if available.
     }
+
+    if (hydratedCachedUser) {
+      return { token, user: hydratedCachedUser };
+    }
+
+    await clearPersistedAuth();
+    return rejectWithValue('Unable to restore session');
   } catch (error) {
     return rejectWithValue(extractErrorMessage(error));
   }
@@ -143,8 +193,7 @@ export const logoutUser = createAsyncThunk<void, void, { rejectValue: string }>(
     } catch {
       // Best-effort – continue with local cleanup even if the server call fails
     } finally {
-      await secureStorage.removeItem(APP_CONFIG.TOKEN_KEY);
-      await asyncStorage.removeItem(APP_CONFIG.USER_KEY);
+      await clearPersistedAuth();
     }
   },
 );
@@ -156,14 +205,7 @@ export const refreshToken = createAsyncThunk<
   { rejectValue: string }
 >('auth/refreshToken', async (_, { rejectWithValue }) => {
   try {
-    const response = await post<unknown>(ENDPOINTS.AUTH.REFRESH_TOKEN, {});
-    const newToken = asString(
-      extractItem<Record<string, unknown>>(response)?.token ??
-        extractItem<Record<string, unknown>>(response)?.access_token,
-    );
-    if (!newToken) return rejectWithValue('Refresh failed: no token returned');
-
-    await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, newToken);
+    const newToken = await refreshStoredAuthToken();
     return newToken;
   } catch (error) {
     return rejectWithValue(extractErrorMessage(error));
@@ -206,6 +248,8 @@ const authSlice = createSlice({
       .addCase(loginUser.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.payload ?? 'Login failed';
+        state.token = null;
+        state.user = null;
         state.isAuthenticated = false;
       });
 
@@ -218,7 +262,7 @@ const authSlice = createSlice({
         state.isRestoringSession = false;
         state.token = action.payload.token;
         state.user = action.payload.user;
-        state.isAuthenticated = true;
+        state.isAuthenticated = !!action.payload.token && !!action.payload.user;
       })
       .addCase(restoreSession.rejected, (state) => {
         state.isRestoringSession = false;
@@ -251,6 +295,9 @@ const authSlice = createSlice({
     builder
       .addCase(refreshToken.fulfilled, (state, action) => {
         state.token = action.payload;
+        if (state.user) {
+          state.user.token = action.payload;
+        }
       })
       .addCase(refreshToken.rejected, (state) => {
         state.token = null;

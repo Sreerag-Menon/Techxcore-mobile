@@ -12,6 +12,8 @@ export const APP_CONFIG = {
   },
   /** SecureStore key for the auth token */
   TOKEN_KEY: 'auth_token',
+  /** SecureStore key for the backend session id */
+  SESSION_KEY: 'session_id',
   /** AsyncStorage key for persisted user profile cache */
   USER_KEY: 'user_data',
   /** AsyncStorage key for theme preference */

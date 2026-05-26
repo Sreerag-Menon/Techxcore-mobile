@@ -7,14 +7,15 @@ import {
   refreshToken,
   restoreSession,
 } from '@/redux/slices/authSlice';
+import { isParentMemberType, normalizeMemberType } from '@/utils';
 
 export function useAuth() {
   const dispatch = useAppDispatch();
   const auth = useAppSelector((state) => state.auth);
 
   return useMemo(() => {
-    const memberType = auth.user?.member_type?.toLowerCase() ?? '';
-    const isParent = memberType.includes('parent');
+    const memberType = normalizeMemberType(auth.user?.member_type);
+    const isParent = isParentMemberType(auth.user?.member_type);
 
     return {
       ...auth,

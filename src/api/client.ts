@@ -4,7 +4,7 @@
  * Features:
  *  - Base URL from APP_CONFIG
  *  - Request interceptor: attaches x-access-token from SecureStore
- *  - Response interceptor: 401 → attempt token refresh → retry once
+ *  - Response interceptor: 401 → refresh token using session_id → retry once
  *  - Network error retry (1 attempt)
  *  - Dev-mode request/response logging
  */
@@ -28,6 +28,12 @@ import { ENDPOINTS } from './endpoints';
 interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
   _retryCount?: number;
+  skipAuth?: boolean;
+}
+
+/** Request config for API calls that may need custom auth behavior */
+export interface ApiRequestConfig extends AxiosRequestConfig {
+  skipAuth?: boolean;
 }
 
 // --------------------------------------------------------------------------
@@ -49,13 +55,17 @@ export const apiClient: AxiosInstance = axios.create({
 
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> => {
-    try {
-      const token = await SecureStore.getItemAsync(APP_CONFIG.TOKEN_KEY);
-      if (token) {
-        config.headers['x-access-token'] = token;
+    const authConfig = config as RetryableRequestConfig;
+
+    if (!authConfig.skipAuth) {
+      try {
+        const token = await SecureStore.getItemAsync(APP_CONFIG.TOKEN_KEY);
+        if (token) {
+          config.headers['x-access-token'] = token;
+        }
+      } catch {
+        // SecureStore unavailable (e.g. simulator without keychain) – skip silently
       }
-    } catch {
-      // SecureStore unavailable (e.g. simulator without keychain) – skip silently
     }
 
     if (__DEV__) {
@@ -86,21 +96,42 @@ function onTokenRefreshed(newToken: string): void {
   refreshSubscribers = [];
 }
 
-async function attemptTokenRefresh(): Promise<string> {
+export function getAccessTokenFromResponse(
+  response: Pick<AxiosResponse, 'headers'>,
+): string {
+  const headerValue = response.headers?.['x-access-token'];
+  const token =
+    headerValue ??
+    (response.headers && typeof response.headers.get === 'function'
+      ? response.headers.get('x-access-token')
+      : undefined);
+  if (Array.isArray(token)) return token[0] ?? '';
+  return typeof token === 'string' ? token : '';
+}
+
+export async function refreshStoredAuthToken(): Promise<string> {
+  const [token, sessionId] = await Promise.all([
+    SecureStore.getItemAsync(APP_CONFIG.TOKEN_KEY),
+    SecureStore.getItemAsync(APP_CONFIG.SESSION_KEY),
+  ]);
+
+  if (!token || !sessionId) {
+    throw new Error('No persisted session available for token refresh');
+  }
+
   // Use a fresh axios instance to avoid interceptor loops
-  const response = await axios.post<{ token: string }>(
+  const response = await axios.post<unknown>(
     `${APP_CONFIG.API_BASE_PATH}${ENDPOINTS.AUTH.REFRESH_TOKEN}`,
-    {},
+    { sessionId },
     {
       headers: {
         'Content-Type': 'application/json',
-        'x-access-token':
-          (await SecureStore.getItemAsync(APP_CONFIG.TOKEN_KEY)) ?? '',
+        'x-access-token': token,
       },
     },
   );
 
-  const newToken = response.data?.token;
+  const newToken = getAccessTokenFromResponse(response);
   if (!newToken) throw new Error('No token in refresh response');
 
   await SecureStore.setItemAsync(APP_CONFIG.TOKEN_KEY, newToken);
@@ -157,7 +188,7 @@ apiClient.interceptors.response.use(
 
       isRefreshing = true;
       try {
-        const newToken = await attemptTokenRefresh();
+        const newToken = await refreshStoredAuthToken();
         isRefreshing = false;
         onTokenRefreshed(newToken);
 
@@ -168,8 +199,9 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         isRefreshing = false;
         refreshSubscribers = [];
-        // Clear stale token so the app can force re-login
+        // Clear stale session data so the app can force re-login.
         await SecureStore.deleteItemAsync(APP_CONFIG.TOKEN_KEY).catch(() => {});
+        await SecureStore.deleteItemAsync(APP_CONFIG.SESSION_KEY).catch(() => {});
         return Promise.reject(refreshError);
       }
     }
@@ -204,8 +236,16 @@ apiClient.interceptors.response.use(
 export async function post<T>(
   endpoint: string,
   data?: unknown,
-  config?: AxiosRequestConfig,
+  config?: ApiRequestConfig,
 ): Promise<T> {
   const response = await apiClient.post<T>(endpoint, data ?? {}, config);
   return response.data;
+}
+
+export async function postWithResponse<T>(
+  endpoint: string,
+  data?: unknown,
+  config?: ApiRequestConfig,
+): Promise<AxiosResponse<T>> {
+  return apiClient.post<T>(endpoint, data ?? {}, config);
 }

@@ -8,6 +8,7 @@ export interface LoginRequest {
 
 export interface LoginResponse {
   token: string;
+  session_id: string;
   member_id: number;
   member_type: string;
   first_name: string;

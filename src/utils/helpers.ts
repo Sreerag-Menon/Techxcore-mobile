@@ -76,6 +76,23 @@ export function capitalizeFirst(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
+/**
+ * Normalize backend member role values into a lowercase string.
+ * The LMS may return either labels like "parent" or numeric ids like 4.
+ */
+export function normalizeMemberType(memberType: unknown): string {
+  if (memberType == null) return '';
+  return String(memberType).trim().toLowerCase();
+}
+
+/**
+ * Parent users are represented as either the "parent" label or role id 4.
+ */
+export function isParentMemberType(memberType: unknown): boolean {
+  const normalized = normalizeMemberType(memberType);
+  return normalized.includes('parent') || normalized === '4';
+}
+
 // --------------------------------------------------------------------------
 // Duration formatting
 // --------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { KeyboardLayout } from '../../src/layouts';
 import { useAppDispatch, useAppSelector } from '../../src/redux';
 import { loginUser } from '../../src/redux/slices/authSlice';
 import { useTheme } from '../../src/theme';
+import { isParentMemberType } from '../../src/utils';
 
 const loginSchema = z.object({
   memberLogin: z
@@ -56,7 +57,7 @@ export default function LoginScreen() {
         text2: `Welcome back, ${response.first_name || 'member'}.`,
       });
 
-      const isParent = response.member_type.toLowerCase().includes('parent');
+      const isParent = isParentMemberType(response.member_type);
       router.replace(isParent ? '/(parent)/(tabs)' : '/(student)/(tabs)');
     } catch (error) {
       const message =

@@ -3,6 +3,7 @@ import { View } from 'react-native';
 
 import { useAppSelector } from '../src/redux/hooks';
 import { useTheme } from '../src/theme';
+import { isParentMemberType } from '../src/utils';
 
 export default function Index() {
   const { colors } = useTheme();
@@ -20,8 +21,7 @@ export default function Index() {
   }
 
   // Route based on member_type
-  const memberType = user?.member_type?.toLowerCase() ?? '';
-  if (memberType.includes('parent')) {
+  if (isParentMemberType(user?.member_type)) {
     return <Redirect href="/(parent)/(tabs)" />;
   }
 
