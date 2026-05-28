@@ -1,99 +1,120 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLocalSearchParams } from 'expo-router';
-import { ScrollView, Text, View } from 'react-native';
-import Toast from 'react-native-toast-message';
+import { Text, View } from 'react-native';
 
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  LoadingScreen,
-  ProgressBar,
-} from '../../../src/components';
+import { Button, Card, EmptyState, ErrorState, LoadingScreen } from '../../../src/components';
 import { ScreenLayout } from '../../../src/layouts';
 import { useAppDispatch, useAppSelector } from '../../../src/redux';
 import { fetchCourseDetails } from '../../../src/redux/slices/courseSlice';
+import { setActiveContentId } from '../../../src/redux/slices/playerSlice';
+import {
+  useGetCourseHierarchyQuery,
+  useGetCurrentModuleQuery,
+  useSaveCreditTimeMutation,
+} from '../../../src/redux/api/playerApi';
 import { useTheme } from '../../../src/theme';
+import type { CourseModule } from '../../../src/types/course.types';
+import { PlayerContainer } from '../../../src/components/player/PlayerContainer';
+import { CourseContentSidebar } from '../../../src/components/player/CourseContentSidebar';
+import { PlayerTabs } from '../../../src/components/player/PlayerTabs';
+import { StudyBuddyChatbot } from '../../../src/components/player/StudyBuddyChatbot';
+import { CourseRating } from '../../../src/components/player/CourseRating';
+import { CertificateViewer } from '../../../src/components/player/CertificateViewer';
 
-function getContentLabel(type?: string) {
-  return (type ?? 'content').slice(0, 3).toUpperCase();
+function flattenModules(hierarchy?: { chapters: Array<{ modules: CourseModule[] }> }) {
+  if (!hierarchy) return [] as CourseModule[];
+  return hierarchy.chapters.flatMap((c) => c.modules);
 }
 
 export default function CourseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const dispatch = useAppDispatch();
   const { colors } = useTheme();
-  const { currentCourse, isLoading, error } = useAppSelector((state) => state.course);
-  const [selectedContentId, setSelectedContentId] = useState<number | null>(null);
-  const [completedContentIds, setCompletedContentIds] = useState<number[]>([]);
+  const coursePublishId = Number(id);
 
-  const loadCourse = useCallback(async () => {
-    const courseId = Number(id);
-    if (!Number.isFinite(courseId)) return;
+  const { currentCourse, isLoading: isCourseLoading, error: courseError } = useAppSelector(
+    (state) => state.course,
+  );
+  const activeContentId = useAppSelector((state) => state.player.activeContentId);
+  const memberId = useAppSelector((state) => state.user.profile?.member_id);
 
-    const course = await dispatch(
-      fetchCourseDetails({ course_publish_id: courseId }),
-    ).unwrap();
-
-    setSelectedContentId(course.contents[0]?.content_id ?? null);
-    setCompletedContentIds(
-      course.contents.filter((content) => content.is_completed).map((content) => content.content_id),
-    );
-  }, [dispatch, id]);
-
-  useEffect(() => {
-    void loadCourse();
-  }, [loadCourse]);
-
-  const selectedContent = useMemo(
-    () =>
-      currentCourse?.contents.find(
-        (content) => content.content_id === selectedContentId,
-      ) ?? currentCourse?.contents[0],
-    [currentCourse?.contents, selectedContentId],
+  const {
+    data: hierarchy,
+    isLoading: isHierarchyLoading,
+    error: hierarchyError,
+    refetch: refetchHierarchy,
+  } = useGetCourseHierarchyQuery(
+    { coursePublishId },
+    { skip: !Number.isFinite(coursePublishId) },
   );
 
-  const progress = useMemo(() => {
-    if (!currentCourse?.contents.length) return 0;
+  const { data: currentModule } = useGetCurrentModuleQuery(
+    { coursePublishId },
+    { skip: !Number.isFinite(coursePublishId) },
+  );
 
-    return Math.round(
-      (completedContentIds.length / currentCourse.contents.length) * 100,
+  const [saveCreditTime] = useSaveCreditTimeMutation();
+
+  useEffect(() => {
+    if (!Number.isFinite(coursePublishId)) return;
+    void dispatch(fetchCourseDetails({ course_publish_id: coursePublishId }));
+  }, [coursePublishId, dispatch]);
+
+  useEffect(() => {
+    if (!Number.isFinite(coursePublishId)) return;
+    void saveCreditTime({ coursePublishId, action: 'start' }).catch(() => {});
+    return () => {
+      void saveCreditTime({ coursePublishId, action: 'stop' }).catch(() => {});
+    };
+  }, [coursePublishId, saveCreditTime]);
+
+  const allModules = useMemo(() => flattenModules(hierarchy), [hierarchy]);
+  const isCourseCompleted = useMemo(() => {
+    if (!allModules.length) return false;
+    return allModules.every((m) => m.status === 'completed');
+  }, [allModules]);
+
+  useEffect(() => {
+    if (activeContentId != null) return;
+    const preferredId = currentModule?.contentId ?? allModules[0]?.contentId ?? null;
+    dispatch(setActiveContentId(preferredId));
+  }, [activeContentId, allModules, currentModule?.contentId, dispatch]);
+
+  const activeModule = useMemo(() => {
+    if (!activeContentId) return null;
+    return allModules.find((m) => m.contentId === activeContentId) ?? null;
+  }, [activeContentId, allModules]);
+
+  const activeIndex = useMemo(() => {
+    if (!activeModule) return -1;
+    return allModules.findIndex((m) => m.contentId === activeModule.contentId);
+  }, [activeModule, allModules]);
+
+  const prevModule = activeIndex > 0 ? allModules[activeIndex - 1] : null;
+  const nextModule =
+    activeIndex >= 0 && activeIndex < allModules.length - 1 ? allModules[activeIndex + 1] : null;
+
+  if (!Number.isFinite(coursePublishId)) {
+    return (
+      <ScreenLayout scrollable={false}>
+        <EmptyState title="Invalid course" message="Course id is missing or invalid." />
+      </ScreenLayout>
     );
-  }, [completedContentIds.length, currentCourse?.contents.length]);
-
-  const toggleCompletion = () => {
-    if (!selectedContent) return;
-
-    setCompletedContentIds((currentIds) => {
-      const hasCompleted = currentIds.includes(selectedContent.content_id);
-      const nextIds = hasCompleted
-        ? currentIds.filter((value) => value !== selectedContent.content_id)
-        : [...currentIds, selectedContent.content_id];
-
-      Toast.show({
-        type: 'success',
-        text1: hasCompleted ? 'Marked incomplete' : 'Marked complete',
-        text2: `${selectedContent.content_name} updated in your local progress view.`,
-      });
-
-      return nextIds;
-    });
-  };
-
-  if (isLoading && !currentCourse) {
-    return <LoadingScreen label="Loading course details..." />;
   }
 
-  if (error && !currentCourse) {
+  if ((isCourseLoading && !currentCourse) || (isHierarchyLoading && !hierarchy)) {
+    return <LoadingScreen label="Loading course player..." />;
+  }
+
+  if ((courseError && !currentCourse) || (hierarchyError && !hierarchy)) {
     return (
       <ScreenLayout scrollable={false}>
         <ErrorState
           title="Course unavailable"
-          message={error}
+          message="We couldn't load this course right now."
           onRetry={() => {
-            void loadCourse();
+            void dispatch(fetchCourseDetails({ course_publish_id: coursePublishId }));
+            void refetchHierarchy();
           }}
         />
       </ScreenLayout>
@@ -102,237 +123,99 @@ export default function CourseDetailScreen() {
 
   return (
     <ScreenLayout>
-      {currentCourse ? (
-        <View style={{ gap: 16 }}>
-          <Card variant="elevated" padding="lg">
-            <View style={{ gap: 14 }}>
-              <Badge label="Course" variant="primary" />
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 24,
-                  fontWeight: '700',
-                }}
-              >
-                {currentCourse.course_name}
+      <View style={{ gap: 16, position: 'relative' }}>
+        <Card variant="elevated" padding="lg">
+          <View style={{ gap: 10 }}>
+            <Text style={{ color: colors.text, fontSize: 22, fontWeight: '800' }}>
+              {currentCourse?.course_name ?? 'Course'}
+            </Text>
+            {activeModule ? (
+              <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+                Now playing: {activeModule.title}
               </Text>
-              {currentCourse.course_description ? (
-                <Text
-                  style={{
-                    color: colors.textSecondary,
-                    fontSize: 14,
-                    lineHeight: 22,
-                  }}
-                >
-                  {currentCourse.course_description}
-                </Text>
-              ) : null}
-              <ProgressBar progress={progress} showLabel />
-              <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
-                <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                  {currentCourse.contents.length} learning items
-                </Text>
-                {currentCourse.total_duration ? (
-                  <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                    {currentCourse.total_duration}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          </Card>
+            ) : null}
+          </View>
+        </Card>
 
+        {activeModule ? (
+          <PlayerContainer coursePublishId={coursePublishId} module={activeModule} />
+        ) : (
           <Card variant="elevated" padding="lg">
-            <View style={{ gap: 14 }}>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 18,
-                  fontWeight: '700',
-                }}
-              >
-                Current lesson
-              </Text>
-
-              {selectedContent ? (
-                <>
-                  <View
-                    style={{
-                      borderRadius: 16,
-                      backgroundColor: colors.background,
-                      padding: 18,
-                      gap: 12,
-                    }}
-                  >
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 12,
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 22,
-                          backgroundColor: colors.primaryLight,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: colors.primary,
-                            fontSize: 12,
-                            fontWeight: '700',
-                            letterSpacing: 0.8,
-                          }}
-                        >
-                          {getContentLabel(selectedContent.content_type)}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1, gap: 4 }}>
-                        <Text
-                          style={{
-                            color: colors.text,
-                            fontSize: 16,
-                            fontWeight: '700',
-                          }}
-                        >
-                          {selectedContent.content_name}
-                        </Text>
-                        <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-                          {selectedContent.content_type.toUpperCase()}
-                          {selectedContent.duration
-                            ? ` · ${selectedContent.duration}`
-                            : ''}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text
-                      style={{
-                        color: colors.textSecondary,
-                        fontSize: 13,
-                        lineHeight: 20,
-                      }}
-                    >
-                      Open this content in the LMS media experience or mark it as
-                      completed once reviewed.
-                    </Text>
-
-                    <Button
-                      title={
-                        completedContentIds.includes(selectedContent.content_id)
-                          ? 'Mark as Incomplete'
-                          : 'Mark as Complete'
-                      }
-                      onPress={toggleCompletion}
-                      fullWidth
-                    />
-                  </View>
-                </>
-              ) : (
-                <EmptyState
-                  title="No lesson selected"
-                  message="This course does not currently contain any published content."
-                />
-              )}
-            </View>
+            <EmptyState
+              title="No playable module"
+              message="This course does not currently contain any published content."
+            />
           </Card>
+        )}
 
-          <Card variant="elevated" padding="lg">
-            <View style={{ gap: 14 }}>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 18,
-                  fontWeight: '700',
-                }}
-              >
-                Course Contents
+        <Card variant="elevated" padding="lg">
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <Button
+              title="Previous"
+              variant="outline"
+              disabled={!prevModule}
+              onPress={() => dispatch(setActiveContentId(prevModule?.contentId ?? null))}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }} numberOfLines={1}>
+                {activeModule?.title ?? '—'}
               </Text>
-
-              {!currentCourse.contents.length ? (
-                <EmptyState
-                  title="No content available"
-                  message="Published modules will appear here once they are assigned."
-                />
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 12 }}
-                >
-                  {currentCourse.contents.map((content) => {
-                    const isSelected = content.content_id === selectedContent?.content_id;
-                    const isCompleted = completedContentIds.includes(content.content_id);
-
-                    return (
-                      <Card
-                        key={content.content_id}
-                        variant={isSelected ? 'elevated' : 'outlined'}
-                        padding="md"
-                        onPress={() => setSelectedContentId(content.content_id)}
-                        style={{
-                          width: 220,
-                          borderWidth: isSelected ? 0 : 1,
-                          borderColor: isSelected ? undefined : colors.border,
-                        }}
-                      >
-                        <View style={{ gap: 10 }}>
-                          <View
-                            style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                            }}
-                          >
-                            <Text
-                              style={{
-                                color: colors.primary,
-                                fontSize: 12,
-                                fontWeight: '700',
-                                letterSpacing: 0.8,
-                              }}
-                            >
-                              {getContentLabel(content.content_type)}
-                            </Text>
-                            <Badge
-                              label={isCompleted ? 'Done' : 'Pending'}
-                              variant={isCompleted ? 'success' : 'neutral'}
-                            />
-                          </View>
-                          <Text
-                            style={{
-                              color: colors.text,
-                              fontSize: 15,
-                              fontWeight: '600',
-                            }}
-                          >
-                            {content.content_name}
-                          </Text>
-                          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                            {content.content_type.toUpperCase()}
-                            {content.duration
-                              ? ` · ${content.duration}`
-                              : ''}
-                          </Text>
-                        </View>
-                      </Card>
-                    );
-                  })}
-                </ScrollView>
-              )}
+              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                {activeIndex >= 0 ? `Module ${activeIndex + 1} of ${allModules.length}` : ''}
+              </Text>
             </View>
-          </Card>
-        </View>
-      ) : (
-        <EmptyState
-          title="Course not found"
-          message="We could not load the selected course."
+            <Button
+              title="Next"
+              disabled={!nextModule}
+              onPress={() => dispatch(setActiveContentId(nextModule?.contentId ?? null))}
+            />
+          </View>
+        </Card>
+
+        <Card variant="elevated" padding="lg">
+          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 8 }}>
+            Details / Notes / Ask Trainer / Discourse
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+            Tabs are now available (notes/chat require curriculumId wiring).
+          </Text>
+        </Card>
+
+        <PlayerTabs
+          courseDetails={currentCourse}
+          memberId={memberId}
+          coursePublishId={coursePublishId}
+          contentId={activeModule?.contentId}
         />
-      )}
+
+        {hierarchy ? (
+          <CourseContentSidebar
+            chapters={hierarchy.chapters}
+            activeContentId={activeContentId}
+            onSelectModule={(m) => dispatch(setActiveContentId(m.contentId))}
+          />
+        ) : null}
+
+        <StudyBuddyChatbot
+          storageKey={`studybuddy:${coursePublishId}:${activeModule?.contentId ?? 'none'}`}
+          context={{
+            coursePublishId,
+            contentId: activeModule?.contentId,
+            chapterId: activeModule?.chapterId,
+            moduleType: activeModule?.type,
+          }}
+        />
+
+        <CourseRating coursePublishId={coursePublishId} shouldPrompt={isCourseCompleted} />
+        <CertificateViewer coursePublishId={coursePublishId} enabled={isCourseCompleted} />
+      </View>
     </ScreenLayout>
   );
 }

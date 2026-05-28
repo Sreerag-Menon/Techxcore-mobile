@@ -5,6 +5,8 @@ import { Provider } from 'react-redux';
 import { Slot } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import Toast from 'react-native-toast-message';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 
 import { store } from '../src/redux/store';
 import { ThemeProvider } from '../src/theme/ThemeContext';
@@ -45,8 +47,12 @@ export default function RootLayout() {
   return (
     <Provider store={store}>
       <ThemeProvider>
-        <AppNavigator />
-        <Toast />
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <BottomSheetModalProvider>
+            <AppNavigator />
+            <Toast />
+          </BottomSheetModalProvider>
+        </GestureHandlerRootView>
       </ThemeProvider>
     </Provider>
   );

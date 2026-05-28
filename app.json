@@ -31,7 +31,16 @@
       "expo-router",
       "expo-secure-store",
       "expo-image-picker",
-      "expo-font"
+      "expo-font",
+      "expo-audio",
+      "expo-screen-orientation",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": false,
+          "supportsPictureInPicture": true
+        }
+      ]
     ]
   }
 }

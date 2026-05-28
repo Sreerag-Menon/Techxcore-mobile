@@ -5,3 +5,4 @@ export * from './assessmentSlice';
 export * from './notificationSlice';
 export * from './parentSlice';
 export * from './tenantSlice';
+export * from './playerSlice';

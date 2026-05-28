@@ -5,8 +5,10 @@ import authReducer from './slices/authSlice';
 import courseReducer from './slices/courseSlice';
 import notificationReducer from './slices/notificationSlice';
 import parentReducer from './slices/parentSlice';
+import playerReducer from './slices/playerSlice';
 import tenantReducer from './slices/tenantSlice';
 import userReducer from './slices/userSlice';
+import { playerApi } from './api/playerApi';
 
 export const store = configureStore({
   reducer: {
@@ -17,6 +19,8 @@ export const store = configureStore({
     assessment: assessmentReducer,
     notification: notificationReducer,
     parent: parentReducer,
+    player: playerReducer,
+    [playerApi.reducerPath]: playerApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
@@ -27,7 +31,7 @@ export const store = configureStore({
           'tenant/restoreTenant/fulfilled',
         ],
       },
-    }),
+    }).concat(playerApi.middleware),
 });
 
 /** Inferred root-state type */
