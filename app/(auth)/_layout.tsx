@@ -16,6 +16,7 @@ export default function AuthLayout() {
         headerTintColor: colors.text,
       }}
     >
+      <Stack.Screen name="select-tenant" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen
         name="forgot-password"

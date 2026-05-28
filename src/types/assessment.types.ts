@@ -1,5 +1,11 @@
 /** Assessment and quiz types */
 
+export type AssessmentStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'completed'
+  | 'expired';
+
 export interface Assessment {
   assessment_id: number;
   test_id: number;
@@ -8,12 +14,26 @@ export interface Assessment {
   total_questions: number;
   total_marks: number;
   duration_minutes: number;
-  status: 'pending' | 'in_progress' | 'completed' | 'expired';
+  status: AssessmentStatus;
   score?: number;
   percentage?: number;
   attempts_allowed: number;
   attempts_used: number;
   due_date?: string;
+}
+
+export interface HomeAssessment {
+  assessment_id?: number;
+  test_id?: number;
+  test_name: string;
+  test_description?: string;
+  status?: AssessmentStatus;
+  total_questions?: number;
+  total_marks?: number;
+  duration_minutes?: number;
+  due_date?: string;
+  course_name?: string;
+  pending_test?: number;
 }
 
 export interface QuestionOption {
@@ -46,7 +66,7 @@ export interface AssessmentResult {
 
 export interface AssessmentState {
   assessments: Assessment[];
-  homeAssessments: Assessment[];
+  homeAssessments: HomeAssessment[];
   currentQuestions: TestQuestion[];
   currentResult: AssessmentResult | null;
   isLoading: boolean;

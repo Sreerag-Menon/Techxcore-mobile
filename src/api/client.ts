@@ -41,7 +41,6 @@ export interface ApiRequestConfig extends AxiosRequestConfig {
 // --------------------------------------------------------------------------
 
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: APP_CONFIG.API_BASE_PATH,
   timeout: 30_000,
   headers: {
     'Content-Type': 'application/json',
@@ -55,6 +54,9 @@ export const apiClient: AxiosInstance = axios.create({
 
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> => {
+    // Resolve the base URL dynamically for the currently active tenant
+    config.baseURL = APP_CONFIG.API_BASE_PATH;
+
     const authConfig = config as RetryableRequestConfig;
 
     if (!authConfig.skipAuth) {

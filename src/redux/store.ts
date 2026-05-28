@@ -5,10 +5,12 @@ import authReducer from './slices/authSlice';
 import courseReducer from './slices/courseSlice';
 import notificationReducer from './slices/notificationSlice';
 import parentReducer from './slices/parentSlice';
+import tenantReducer from './slices/tenantSlice';
 import userReducer from './slices/userSlice';
 
 export const store = configureStore({
   reducer: {
+    tenant: tenantReducer,
     auth: authReducer,
     user: userReducer,
     course: courseReducer,
@@ -20,7 +22,10 @@ export const store = configureStore({
     getDefaultMiddleware({
       serializableCheck: {
         // Ignore non-serialisable values in these action paths (e.g. Date objects)
-        ignoredActions: ['auth/restoreSession/fulfilled'],
+        ignoredActions: [
+          'auth/restoreSession/fulfilled',
+          'tenant/restoreTenant/fulfilled',
+        ],
       },
     }),
 });

@@ -21,6 +21,10 @@ export interface LoginResponse {
   campus_id?: number;
 }
 
+export type LoginRejectReason =
+  | { code: 'ALREADY_LOGGED_IN'; uMemberId: string; message: string }
+  | { code: 'LOGIN_FAILED'; message: string };
+
 export interface AuthState {
   token: string | null;
   user: LoginResponse | null;

@@ -5,3 +5,4 @@ export * from './assessment.types';
 export * from './parent.types';
 export * from './notification.types';
 export * from './navigation.types';
+export * from './tenant.types';

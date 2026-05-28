@@ -10,10 +10,18 @@ export default function Index() {
   const { isAuthenticated, isRestoringSession, user } = useAppSelector(
     (state) => state.auth,
   );
+  const { currentTenant, isRestoringTenant } = useAppSelector(
+    (state) => state.tenant,
+  );
 
   // Splash screen is still visible while restoring – render nothing
-  if (isRestoringSession) {
+  if (isRestoringTenant || isRestoringSession) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
+
+  // No tenant configured → go to tenant selection
+  if (!currentTenant) {
+    return <Redirect href="/(auth)/select-tenant" />;
   }
 
   if (!isAuthenticated) {

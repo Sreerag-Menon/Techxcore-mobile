@@ -6,7 +6,9 @@ import { ENDPOINTS } from '../../api/endpoints';
 import type {
   Assessment,
   AssessmentResult,
+  AssessmentStatus,
   AssessmentState,
+  HomeAssessment,
   TestQuestion,
 } from '../../types/assessment.types';
 
@@ -37,6 +39,87 @@ function extractErrorMessage(error: unknown): string {
   );
 }
 
+type HomeAssessmentApiRow = {
+  assessment_id?: number | string | null;
+  test_id?: number | string | null;
+  id?: number | string | null;
+  test_name?: string | null;
+  name?: string | null;
+  test_description?: string | null;
+  status?: string | null;
+  total_questions?: number | string | null;
+  total_marks?: number | string | null;
+  duration_minutes?: number | string | null;
+  due_date?: string | null;
+  course_name?: string | null;
+  currname?: string | null;
+  pending_test?: number | string | null;
+};
+
+const VALID_ASSESSMENT_STATUSES = new Set<AssessmentStatus>([
+  'pending',
+  'in_progress',
+  'completed',
+  'expired',
+]);
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return undefined;
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function normalizeAssessmentStatus(value: unknown): AssessmentStatus | undefined {
+  const normalized = toOptionalString(value)?.toLowerCase().replace(/\s+/g, '_');
+  if (!normalized || !VALID_ASSESSMENT_STATUSES.has(normalized as AssessmentStatus)) {
+    return undefined;
+  }
+
+  return normalized as AssessmentStatus;
+}
+
+function normalizeHomeAssessment(row: HomeAssessmentApiRow): HomeAssessment {
+  return {
+    assessment_id:
+      toOptionalNumber(row.assessment_id) ?? toOptionalNumber(row.id),
+    test_id:
+      toOptionalNumber(row.test_id) ??
+      toOptionalNumber(row.id) ??
+      toOptionalNumber(row.assessment_id),
+    test_name:
+      toOptionalString(row.test_name) ??
+      toOptionalString(row.name) ??
+      'Upcoming assessment',
+    test_description: toOptionalString(row.test_description),
+    status: normalizeAssessmentStatus(row.status),
+    total_questions: toOptionalNumber(row.total_questions),
+    total_marks: toOptionalNumber(row.total_marks),
+    duration_minutes: toOptionalNumber(row.duration_minutes),
+    due_date: toOptionalString(row.due_date),
+    course_name:
+      toOptionalString(row.course_name) ?? toOptionalString(row.currname),
+    pending_test: toOptionalNumber(row.pending_test),
+  };
+}
+
 // --------------------------------------------------------------------------
 // Async thunks
 // --------------------------------------------------------------------------
@@ -55,13 +138,15 @@ export const fetchAssessments = createAsyncThunk<
 });
 
 export const fetchHomeAssessments = createAsyncThunk<
-  Assessment[],
+  HomeAssessment[],
   Record<string, unknown> | undefined,
   { rejectValue: string }
 >('assessment/fetchHomeAssessments', async (params = {}, { rejectWithValue }) => {
   try {
     const response = await post<unknown>(ENDPOINTS.ASSESSMENT.HOME_ASSESSMENTS, params);
-    return extractArray<Assessment>(response, ['assessments', 'tests']);
+    return extractArray<HomeAssessmentApiRow>(response, ['assessments', 'tests']).map(
+      normalizeHomeAssessment,
+    );
   } catch (error) {
     return rejectWithValue(extractErrorMessage(error));
   }

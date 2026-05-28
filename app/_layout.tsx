@@ -9,9 +9,10 @@ import Toast from 'react-native-toast-message';
 import { store } from '../src/redux/store';
 import { ThemeProvider } from '../src/theme/ThemeContext';
 import { restoreSession } from '../src/redux/slices/authSlice';
+import { restoreTenant } from '../src/redux/slices/tenantSlice';
 import { useAppDispatch, useAppSelector } from '../src/redux/hooks';
 
-// Keep splash screen visible until auth state is resolved
+// Keep splash screen visible until both tenant and auth state are resolved
 SplashScreen.preventAutoHideAsync();
 
 function AppNavigator() {
@@ -19,16 +20,23 @@ function AppNavigator() {
   const isRestoringSession = useAppSelector(
     (state) => state.auth.isRestoringSession,
   );
+  const isRestoringTenant = useAppSelector(
+    (state) => state.tenant.isRestoringTenant,
+  );
 
   useEffect(() => {
-    dispatch(restoreSession());
+    // Restore tenant config first — this sets the API base URL
+    // so that restoreSession can call the correct tenant's backend
+    dispatch(restoreTenant()).then(() => {
+      dispatch(restoreSession());
+    });
   }, [dispatch]);
 
   useEffect(() => {
-    if (!isRestoringSession) {
+    if (!isRestoringTenant && !isRestoringSession) {
       SplashScreen.hideAsync();
     }
-  }, [isRestoringSession]);
+  }, [isRestoringTenant, isRestoringSession]);
 
   return <Slot />;
 }

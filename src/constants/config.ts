@@ -1,11 +1,34 @@
 /**
  * Application configuration constants derived from environment variables.
  * All EXPO_PUBLIC_ vars are inlined at build time by Expo.
+ *
+ * API_BASE_URL and API_BASE_PATH are dynamic – updated at runtime by the
+ * tenant management layer so the Axios client automatically targets the
+ * currently active tenant's backend.
  */
 export const APP_CONFIG = {
-  API_BASE_URL:
-    process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.220.40:8081',
-  API_VERSION: process.env.EXPO_PUBLIC_API_VERSION || 'v0.2',
+  /** Default/fallback API base URL – used during development or before tenant selection */
+  DEFAULT_API_BASE_URL:
+    process.env.EXPO_PUBLIC_API_BASE_URL || 'http://10.0.2.2:8081',
+  /** Default API version – all tenants currently use v0.2 */
+  DEFAULT_API_VERSION: process.env.EXPO_PUBLIC_API_VERSION || 'v0.2',
+
+  /** Runtime-mutable API target – set by TenantSlice */
+  _apiBaseUrl: '' as string,
+  _apiVersion: '' as string,
+
+  get API_BASE_URL(): string {
+    return this._apiBaseUrl || this.DEFAULT_API_BASE_URL;
+  },
+  set API_BASE_URL(url: string) {
+    this._apiBaseUrl = url;
+  },
+  get API_VERSION(): string {
+    return this._apiVersion || this.DEFAULT_API_VERSION;
+  },
+  set API_VERSION(version: string) {
+    this._apiVersion = version;
+  },
   /** Full base path used by the Axios client */
   get API_BASE_PATH(): string {
     return `${this.API_BASE_URL}/api/${this.API_VERSION}`;
@@ -14,8 +37,10 @@ export const APP_CONFIG = {
   TOKEN_KEY: 'auth_token',
   /** SecureStore key for the backend session id */
   SESSION_KEY: 'session_id',
+  /** SecureStore key for the persisted tenant configuration */
+  TENANT_KEY: 'tenant_config',
   /** AsyncStorage key for persisted user profile cache */
   USER_KEY: 'user_data',
   /** AsyncStorage key for theme preference */
   THEME_KEY: 'theme_preference',
-} as const;
+};

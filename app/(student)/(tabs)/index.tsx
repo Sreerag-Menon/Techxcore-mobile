@@ -25,7 +25,54 @@ import { fetchNotifications } from '../../../src/redux/slices/notificationSlice'
 import { fetchUserProfile } from '../../../src/redux/slices/userSlice';
 import { fetchRecentActivity, type DashboardActivity } from '../../../src/services';
 import { useTheme } from '../../../src/theme';
+import type { AssessmentStatus } from '../../../src/types/assessment.types';
 import { formatDate, timeAgo } from '../../../src/utils';
+
+function formatAssessmentStatus(status?: AssessmentStatus): string {
+  return status ? status.replace(/_/g, ' ') : 'scheduled';
+}
+
+function getAssessmentStatusVariant(
+  status?: AssessmentStatus,
+): 'primary' | 'success' | 'warning' | 'neutral' {
+  switch (status) {
+    case 'completed':
+      return 'success';
+    case 'in_progress':
+      return 'warning';
+    case 'expired':
+      return 'neutral';
+    case 'pending':
+      return 'primary';
+    default:
+      return 'neutral';
+  }
+}
+
+function getHomeAssessmentMetrics(
+  totalQuestions?: number,
+  totalMarks?: number,
+): string | null {
+  const parts: string[] = [];
+
+  if (typeof totalQuestions === 'number' && Number.isFinite(totalQuestions)) {
+    parts.push(`${totalQuestions} questions`);
+  }
+
+  if (typeof totalMarks === 'number' && Number.isFinite(totalMarks)) {
+    parts.push(`${totalMarks} marks`);
+  }
+
+  return parts.length ? parts.join(' · ') : null;
+}
+
+function getDueDateLabel(dueDate?: string): string | null {
+  if (!dueDate) {
+    return null;
+  }
+
+  return formatDate(dueDate) || dueDate;
+}
 
 export default function StudentDashboard() {
   const dispatch = useAppDispatch();
@@ -341,64 +388,77 @@ export default function StudentDashboard() {
               </Text>
             </Card>
           ) : (
-            homeAssessments.slice(0, 3).map((assessment) => (
-              <Card
-                key={assessment.test_id}
-                variant="default"
-                padding="lg"
-                onPress={() =>
-                  router.push({
-                    pathname: '/(student)/assessment/[id]',
-                    params: { id: String(assessment.test_id) },
-                  })
-                }
-              >
-                <View style={{ gap: 10 }}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                  >
-                    <Text
+            homeAssessments.slice(0, 3).map((assessment, index) => {
+              const canOpenAssessment =
+                typeof assessment.test_id === 'number' &&
+                Number.isFinite(assessment.test_id);
+              const metricsLabel = getHomeAssessmentMetrics(
+                assessment.total_questions,
+                assessment.total_marks,
+              );
+              const dueDateLabel = getDueDateLabel(assessment.due_date);
+
+              return (
+                <Card
+                  key={
+                    assessment.test_id ??
+                    `${assessment.test_name.toLowerCase().replace(/\s+/g, '-')}-${index}`
+                  }
+                  variant="default"
+                  padding="lg"
+                  onPress={
+                    canOpenAssessment
+                      ? () =>
+                          router.push({
+                            pathname: '/(student)/assessment/[id]',
+                            params: { id: String(assessment.test_id) },
+                          })
+                      : undefined
+                  }
+                >
+                  <View style={{ gap: 10 }}>
+                    <View
                       style={{
-                        color: colors.text,
-                        fontSize: 16,
-                        fontWeight: '700',
-                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
                       }}
                     >
-                      {assessment.test_name}
-                    </Text>
-                    <Badge
-                      label={assessment.status.replace('_', ' ')}
-                      variant={
-                        assessment.status === 'completed'
-                          ? 'success'
-                          : assessment.status === 'in_progress'
-                            ? 'warning'
-                            : 'primary'
-                      }
-                    />
+                      <Text
+                        style={{
+                          color: colors.text,
+                          fontSize: 16,
+                          fontWeight: '700',
+                          flex: 1,
+                        }}
+                      >
+                        {assessment.test_name}
+                      </Text>
+                      <Badge
+                        label={formatAssessmentStatus(assessment.status)}
+                        variant={getAssessmentStatusVariant(assessment.status)}
+                      />
+                    </View>
+                    {metricsLabel ? (
+                      <Text
+                        style={{
+                          color: colors.textSecondary,
+                          fontSize: 13,
+                        }}
+                      >
+                        {metricsLabel}
+                      </Text>
+                    ) : null}
+                    {dueDateLabel ? (
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
+                        Due {dueDateLabel}
+                      </Text>
+                    ) : null}
                   </View>
-                  <Text
-                    style={{
-                      color: colors.textSecondary,
-                      fontSize: 13,
-                    }}
-                  >
-                    {assessment.total_questions} questions · {assessment.total_marks} marks
-                  </Text>
-                  {assessment.due_date ? (
-                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                      Due {formatDate(assessment.due_date)}
-                    </Text>
-                  ) : null}
-                </View>
-              </Card>
-            ))
+                </Card>
+              );
+            })
           )}
         </View>
 

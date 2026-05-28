@@ -6,6 +6,11 @@ import {
   asString,
   extractItem,
   getAccessTokenFromResponse,
+  getStatusErrorMessage,
+  getUmemberId,
+  isAlreadyLoggedIn,
+  isLoginSuccess,
+  parseLoginStatusRow,
   post,
   postWithResponse,
   refreshStoredAuthToken,
@@ -15,6 +20,7 @@ import { APP_CONFIG } from '../../constants/config';
 import { asyncStorage, secureStorage } from '../../utils/storage';
 import type {
   AuthState,
+  LoginRejectReason,
   LoginRequest,
   LoginResponse,
 } from '../../types/auth.types';
@@ -101,6 +107,46 @@ function normalizeLoginResponse(
   };
 }
 
+type LoginResponseContext = {
+  token: string;
+  sessionId: string;
+  user: LoginResponse;
+};
+
+function completeLoginFromResponse(
+  response: Awaited<ReturnType<typeof postWithResponse<unknown>>>,
+): LoginResponseContext | LoginRejectReason {
+  const row = parseLoginStatusRow(response.data);
+  if (isAlreadyLoggedIn(row)) {
+    const uMemberId = getUmemberId(row);
+    return {
+      code: 'ALREADY_LOGGED_IN',
+      uMemberId,
+      message:
+        'You are already logged in on another device. Do you want to continue here?',
+    };
+  }
+
+  const token = getAccessTokenFromResponse(response);
+  if (!isLoginSuccess(row, token)) {
+    return {
+      code: 'LOGIN_FAILED',
+      message: getStatusErrorMessage(row),
+    };
+  }
+
+  const sessionId = extractSessionId(response.data);
+  const user = normalizeLoginResponse(response.data, { token, sessionId });
+  if (!user) {
+    return {
+      code: 'LOGIN_FAILED',
+      message: 'Invalid login response: missing auth header or session',
+    };
+  }
+
+  return { token, sessionId, user };
+}
+
 // --------------------------------------------------------------------------
 // Async thunks
 // --------------------------------------------------------------------------
@@ -109,7 +155,7 @@ function normalizeLoginResponse(
 export const loginUser = createAsyncThunk<
   LoginResponse,
   LoginRequest,
-  { rejectValue: string }
+  { rejectValue: LoginRejectReason }
 >('auth/loginUser', async (credentials, { rejectWithValue }) => {
   try {
     const response = await postWithResponse<unknown>(
@@ -117,20 +163,49 @@ export const loginUser = createAsyncThunk<
       credentials,
       { skipAuth: true },
     );
-    const token = getAccessTokenFromResponse(response);
-    const sessionId = extractSessionId(response.data);
-    const data = normalizeLoginResponse(response.data, { token, sessionId });
-
-    if (!data) {
-      return rejectWithValue('Invalid login response: missing auth header or session');
+    const result = completeLoginFromResponse(response);
+    if ('code' in result) {
+      return rejectWithValue(result);
     }
 
-    await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, data.token);
-    await secureStorage.setItem(APP_CONFIG.SESSION_KEY, data.session_id);
-    await asyncStorage.setItem(APP_CONFIG.USER_KEY, data);
-    return data;
+    await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, result.token);
+    await secureStorage.setItem(APP_CONFIG.SESSION_KEY, result.sessionId);
+    await asyncStorage.setItem(APP_CONFIG.USER_KEY, result.user);
+    return result.user;
   } catch (error) {
-    return rejectWithValue(extractErrorMessage(error));
+    return rejectWithValue({
+      code: 'LOGIN_FAILED',
+      message: extractErrorMessage(error),
+    });
+  }
+});
+
+export const clearUserSession = createAsyncThunk<
+  void,
+  string,
+  { rejectValue: LoginRejectReason }
+>('auth/clearUserSession', async (uMemberId, { rejectWithValue }) => {
+  try {
+    const response = await postWithResponse<unknown>(
+      ENDPOINTS.AUTH.CLEAR_USER_SESSION,
+      { uMemberId },
+      { skipAuth: true },
+    );
+
+    const row = parseLoginStatusRow(response.data);
+    if (!row || row.statusvalue !== 1) {
+      return rejectWithValue({
+        code: 'LOGIN_FAILED',
+        message: getStatusErrorMessage(row),
+      });
+    }
+
+    return;
+  } catch (error) {
+    return rejectWithValue({
+      code: 'LOGIN_FAILED',
+      message: extractErrorMessage(error),
+    });
   }
 });
 
@@ -247,7 +322,10 @@ const authSlice = createSlice({
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.payload ?? 'Login failed';
+        state.error =
+          (action.payload && 'message' in action.payload
+            ? action.payload.message
+            : null) ?? 'Login failed';
         state.token = null;
         state.user = null;
         state.isAuthenticated = false;
