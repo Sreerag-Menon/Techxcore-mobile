@@ -1,0 +1,60 @@
+/** User-facing copy for the authentication flow. */
+export const authCopy = {
+  brandName: 'Techxcore',
+
+  selectTenant: {
+    title: 'Connect your institution',
+    subtitle: 'Enter the code from your school or organization.',
+    institutionCodeLabel: 'Institution code',
+    institutionCodePlaceholder: 'Your institution code',
+    connect: 'Connect',
+    confirmTitle: 'Is this your institution?',
+    continueToSignIn: 'Continue to Sign In',
+    useDifferentCode: 'Use a different code',
+    toastCodeRequired: 'Institution code required',
+    toastConnectionFailed: 'Connection failed',
+    connectionFallback: 'Could not connect to this institution.',
+  },
+
+  login: {
+    title: 'Sign in',
+    subtitle: 'Use your student or parent account.',
+    emailLabel: 'Email',
+    emailPlaceholder: 'you@example.com',
+    passwordLabel: 'Password',
+    passwordPlaceholder: 'Enter your password',
+    rememberMe: 'Keep me signed in',
+    signIn: 'Sign In',
+    forgotPassword: 'Forgot your password?',
+    switchInstitutionPrefix: 'Not',
+    switchInstitution: 'Switch institution',
+    accessRestricted: 'This app is available for Students and Parents only.',
+    toastAccessRestricted: 'Access restricted',
+    toastLoginSuccess: 'Login successful',
+    toastLoginFailed: 'Login failed',
+    welcomeBack: (name: string) => `Welcome back, ${name}.`,
+    alertAlreadySignedIn: 'Already signed in',
+    alertContinue: 'Continue',
+    alertCancel: 'Cancel',
+  },
+
+  forgotPassword: {
+    title: 'Reset password',
+    subtitle: "We'll email you a link to reset your password.",
+    back: 'Back',
+    emailLabel: 'Email',
+    emailPlaceholder: 'you@example.com',
+    sendInstructions: 'Send Reset Instructions',
+    successTitle: 'Check your inbox',
+    backToSignIn: 'Back to Sign In',
+    toastSubmitted: 'Request submitted',
+    toastFailed: 'Request failed',
+    submitFallback: 'Unable to submit your password reset request.',
+  },
+
+  validation: {
+    emailRequired: 'Email is required',
+    emailInvalid: 'Enter a valid email address',
+    passwordRequired: 'Password is required',
+  },
+} as const;

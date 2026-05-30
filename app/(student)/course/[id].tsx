@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { Text, View } from 'react-native';
 
 import { Button, Card, EmptyState, ErrorState, LoadingScreen } from '../../../src/components';
 import { ScreenLayout } from '../../../src/layouts';
+import { asNumber, extractItem } from '../../../src/api/normalize';
+import { resolveCoursePlayerContext } from '../../../src/services/coursePlayerContext';
 import { useAppDispatch, useAppSelector } from '../../../src/redux';
 import { fetchCourseDetails } from '../../../src/redux/slices/courseSlice';
 import { setActiveContentId } from '../../../src/redux/slices/playerSlice';
@@ -27,16 +29,45 @@ function flattenModules(hierarchy?: { chapters: Array<{ modules: CourseModule[] 
 }
 
 export default function CourseDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, courseId: routeCourseId, curriculumId: routeCurriculumId } =
+    useLocalSearchParams<{
+      id: string;
+      courseId?: string;
+      curriculumId?: string;
+    }>();
   const dispatch = useAppDispatch();
   const { colors } = useTheme();
-  const coursePublishId = Number(id);
 
-  const { currentCourse, isLoading: isCourseLoading, error: courseError } = useAppSelector(
-    (state) => state.course,
-  );
+  const courses = useAppSelector((state) => state.course.courses);
+  const {
+    currentCourse,
+    isLoadingCourseDetails,
+    error: courseError,
+  } = useAppSelector((state) => state.course);
   const activeContentId = useAppSelector((state) => state.player.activeContentId);
   const memberId = useAppSelector((state) => state.user.profile?.member_id);
+  const authMemberId = useAppSelector((state) => state.auth.user?.member_id);
+
+  const playerContext = useMemo(
+    () =>
+      resolveCoursePlayerContext(
+        { id, courseId: routeCourseId, curriculumId: routeCurriculumId },
+        courses,
+      ),
+    [id, routeCourseId, routeCurriculumId, courses],
+  );
+
+  const publishId = playerContext?.coursePublishId;
+  const ctxCourseId = playerContext?.courseId;
+  const ctxCurriculumId = playerContext?.curriculumId;
+
+  const canLoadPlayer =
+    publishId != null &&
+    ctxCourseId != null &&
+    ctxCurriculumId != null &&
+    Number.isFinite(publishId) &&
+    Number.isFinite(ctxCourseId) &&
+    Number.isFinite(ctxCurriculumId);
 
   const {
     data: hierarchy,
@@ -44,29 +75,66 @@ export default function CourseDetailScreen() {
     error: hierarchyError,
     refetch: refetchHierarchy,
   } = useGetCourseHierarchyQuery(
-    { coursePublishId },
-    { skip: !Number.isFinite(coursePublishId) },
+    { coursePublishId: publishId!, courseId: ctxCourseId! },
+    { skip: !canLoadPlayer },
   );
 
   const { data: currentModule } = useGetCurrentModuleQuery(
-    { coursePublishId },
-    { skip: !Number.isFinite(coursePublishId) },
+    {
+      coursePublishId: publishId!,
+      courseId: ctxCourseId!,
+      curriculumId: ctxCurriculumId!,
+    },
+    { skip: !canLoadPlayer },
   );
 
   const [saveCreditTime] = useSaveCreditTimeMutation();
+  const creditHourIdRef = useRef(0);
+
+  const studentId = memberId ?? authMemberId;
 
   useEffect(() => {
-    if (!Number.isFinite(coursePublishId)) return;
-    void dispatch(fetchCourseDetails({ course_publish_id: coursePublishId }));
-  }, [coursePublishId, dispatch]);
+    dispatch(setActiveContentId(null));
+  }, [publishId, dispatch]);
 
   useEffect(() => {
-    if (!Number.isFinite(coursePublishId)) return;
-    void saveCreditTime({ coursePublishId, action: 'start' }).catch(() => {});
+    if (publishId == null) return;
+    void dispatch(fetchCourseDetails({ course_publish_id: publishId }));
+  }, [publishId, dispatch]);
+
+  useEffect(() => {
+    if (publishId == null || ctxCourseId == null || !studentId) return;
+
+    let cancelled = false;
+    creditHourIdRef.current = 0;
+
+    void saveCreditTime({
+      coursePublishId: publishId,
+      courseId: ctxCourseId,
+      studentId,
+      startCourse: 1,
+    })
+      .unwrap()
+      .then((result) => {
+        if (cancelled) return;
+        const row = extractItem<Record<string, unknown>>(result);
+        const hourId = asNumber(row?.hour_id ?? row?.hourId, 0);
+        if (hourId > 0) creditHourIdRef.current = hourId;
+      })
+      .catch(() => {});
+
     return () => {
-      void saveCreditTime({ coursePublishId, action: 'stop' }).catch(() => {});
+      cancelled = true;
+      void saveCreditTime({
+        coursePublishId: publishId,
+        courseId: ctxCourseId,
+        studentId,
+        hourId: creditHourIdRef.current,
+        stopCourse: 1,
+      }).catch(() => {});
     };
-  }, [coursePublishId, saveCreditTime]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- session tied to course + student only
+  }, [publishId, ctxCourseId, studentId]);
 
   const allModules = useMemo(() => flattenModules(hierarchy), [hierarchy]);
   const isCourseCompleted = useMemo(() => {
@@ -74,11 +142,13 @@ export default function CourseDetailScreen() {
     return allModules.every((m) => m.status === 'completed');
   }, [allModules]);
 
+  const preferredContentId =
+    hierarchy?.currentModuleId ?? currentModule?.contentId ?? allModules[0]?.contentId ?? null;
+
   useEffect(() => {
     if (activeContentId != null) return;
-    const preferredId = currentModule?.contentId ?? allModules[0]?.contentId ?? null;
-    dispatch(setActiveContentId(preferredId));
-  }, [activeContentId, allModules, currentModule?.contentId, dispatch]);
+    dispatch(setActiveContentId(preferredContentId));
+  }, [activeContentId, preferredContentId, dispatch]);
 
   const activeModule = useMemo(() => {
     if (!activeContentId) return null;
@@ -94,15 +164,18 @@ export default function CourseDetailScreen() {
   const nextModule =
     activeIndex >= 0 && activeIndex < allModules.length - 1 ? allModules[activeIndex + 1] : null;
 
-  if (!Number.isFinite(coursePublishId)) {
+  if (!playerContext) {
     return (
       <ScreenLayout scrollable={false}>
-        <EmptyState title="Invalid course" message="Course id is missing or invalid." />
+        <EmptyState
+          title="Invalid course"
+          message="Course context is missing. Open the course from the Courses list."
+        />
       </ScreenLayout>
     );
   }
 
-  if ((isCourseLoading && !currentCourse) || (isHierarchyLoading && !hierarchy)) {
+  if ((isLoadingCourseDetails && !currentCourse) || (isHierarchyLoading && !hierarchy)) {
     return <LoadingScreen label="Loading course player..." />;
   }
 
@@ -113,7 +186,7 @@ export default function CourseDetailScreen() {
           title="Course unavailable"
           message="We couldn't load this course right now."
           onRetry={() => {
-            void dispatch(fetchCourseDetails({ course_publish_id: coursePublishId }));
+            void dispatch(fetchCourseDetails({ course_publish_id: playerContext.coursePublishId }));
             void refetchHierarchy();
           }}
         />
@@ -138,7 +211,11 @@ export default function CourseDetailScreen() {
         </Card>
 
         {activeModule ? (
-          <PlayerContainer coursePublishId={coursePublishId} module={activeModule} />
+          <PlayerContainer
+            coursePublishId={playerContext.coursePublishId}
+            curriculumId={playerContext.curriculumId}
+            module={activeModule}
+          />
         ) : (
           <Card variant="elevated" padding="lg">
             <EmptyState
@@ -179,20 +256,12 @@ export default function CourseDetailScreen() {
           </View>
         </Card>
 
-        <Card variant="elevated" padding="lg">
-          <Text style={{ color: colors.text, fontWeight: '800', marginBottom: 8 }}>
-            Details / Notes / Ask Trainer / Discourse
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-            Tabs are now available (notes/chat require curriculumId wiring).
-          </Text>
-        </Card>
-
         <PlayerTabs
           courseDetails={currentCourse}
           memberId={memberId}
-          coursePublishId={coursePublishId}
+          coursePublishId={playerContext.coursePublishId}
           contentId={activeModule?.contentId}
+          curriculumId={playerContext.curriculumId}
         />
 
         {hierarchy ? (
@@ -204,17 +273,17 @@ export default function CourseDetailScreen() {
         ) : null}
 
         <StudyBuddyChatbot
-          storageKey={`studybuddy:${coursePublishId}:${activeModule?.contentId ?? 'none'}`}
+          storageKey={`studybuddy:${playerContext.coursePublishId}:${activeModule?.contentId ?? 'none'}`}
           context={{
-            coursePublishId,
+            coursePublishId: playerContext.coursePublishId,
             contentId: activeModule?.contentId,
             chapterId: activeModule?.chapterId,
             moduleType: activeModule?.type,
           }}
         />
 
-        <CourseRating coursePublishId={coursePublishId} shouldPrompt={isCourseCompleted} />
-        <CertificateViewer coursePublishId={coursePublishId} enabled={isCourseCompleted} />
+        <CourseRating coursePublishId={playerContext.coursePublishId} shouldPrompt={isCourseCompleted} />
+        <CertificateViewer coursePublishId={playerContext.coursePublishId} enabled={isCourseCompleted} />
       </View>
     </ScreenLayout>
   );

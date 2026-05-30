@@ -20,7 +20,7 @@ export interface TenantConfig {
   campusLogoUrl?: string;
   /** Timestamp of when this tenant was last validated */
   lastValidated: string;
-  /** Short code used when connecting (e.g. "AAI001") */
+  /** Short code used when connecting (e.g. "SCHOOL01") */
   tenantCode?: string;
 }
 

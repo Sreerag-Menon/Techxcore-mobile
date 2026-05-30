@@ -18,7 +18,7 @@ import { useColorScheme } from 'react-native';
 import { APP_CONFIG } from '../constants/config';
 import { colors, ColorScheme } from './colors';
 import { spacing } from './spacing';
-import { typography } from './typography';
+import { typography, fontFamily } from './typography';
 
 // --------------------------------------------------------------------------
 // Types
@@ -30,6 +30,8 @@ export interface Theme {
   colors: ColorScheme;
   spacing: typeof spacing;
   typography: typeof typography;
+  /** Satoshi font family map — use these in fontFamily style props */
+  fontFamily: typeof fontFamily;
 }
 
 export interface ThemeContextValue {
@@ -38,6 +40,8 @@ export interface ThemeContextValue {
   isDark: boolean;
   /** Active color palette (shortcut for theme.colors) */
   colors: ColorScheme;
+  /** Satoshi font family map (shortcut for theme.fontFamily) */
+  fontFamily: typeof fontFamily;
   toggleTheme: () => void;
   setThemeMode: (mode: ThemeMode) => void;
 }
@@ -78,7 +82,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
   );
 
   const theme: Theme = useMemo(
-    () => ({ colors: activeColors, spacing, typography }),
+    () => ({ colors: activeColors, spacing, typography, fontFamily }),
     [activeColors],
   );
 
@@ -92,7 +96,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): Reac
   }, [isDark, setThemeMode]);
 
   const value: ThemeContextValue = useMemo(
-    () => ({ theme, mode, isDark, colors: activeColors, toggleTheme, setThemeMode }),
+    () => ({ theme, mode, isDark, colors: activeColors, fontFamily, toggleTheme, setThemeMode }),
     [theme, mode, isDark, activeColors, toggleTheme, setThemeMode],
   );
 

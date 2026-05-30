@@ -1,4 +1,4 @@
-/** Spacing scale (in density-independent pixels) for consistent layout */
+/** Spacing scale (density-independent pixels) for consistent layout */
 
 export const spacing = {
   xs: 4,
@@ -10,6 +10,8 @@ export const spacing = {
   '3xl': 32,
   '4xl': 40,
   '5xl': 48,
+  '6xl': 64,
+  '7xl': 80,
 } as const;
 
 export type SpacingKey = keyof typeof spacing;

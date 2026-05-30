@@ -4,7 +4,13 @@ import type { AxiosError } from 'axios';
 
 import { post } from '../../api';
 import { ENDPOINTS } from '../../api/endpoints';
-import { buildCourseHierarchy } from '../../api/normalize';
+import {
+  asNumber,
+  buildCourseHierarchy,
+  buildTraineePlaybackHierarchy,
+  extractArray,
+  extractItem,
+} from '../../api/normalize';
 import type { CourseHier } from '../../types/course.types';
 
 type AxiosBaseQueryArgs = {
@@ -63,6 +69,52 @@ export type CertificateResponse = {
   certificateUrl: string;
 };
 
+function transformHierarchyResponse(
+  response: unknown,
+  coursePublishId: number,
+  preferredCourseId?: number,
+): CourseHier {
+  const playbackRow = extractItem<Record<string, unknown>>(response);
+  if (playbackRow?.course_module_details != null) {
+    return buildTraineePlaybackHierarchy(response, coursePublishId);
+  }
+
+  const rows = extractArray<Record<string, unknown>>(response);
+  if (rows.length === 0) {
+    return buildCourseHierarchy(response, coursePublishId);
+  }
+
+  const hasV2Shape = rows.some((row) => row.course_details != null);
+  if (hasV2Shape) {
+    const match =
+      preferredCourseId != null
+        ? rows.find((row) => asNumber(row.course_id, 0) === preferredCourseId) ?? rows[0]
+        : rows[0];
+    return buildCourseHierarchy(match?.course_details ?? match, coursePublishId);
+  }
+
+  return buildCourseHierarchy(response, coursePublishId);
+}
+
+function transformCurrentModuleResponse(
+  response: unknown,
+): TraineeCurrentModuleResponse | null {
+  const row = extractItem<Record<string, unknown>>(response);
+  if (!row) return null;
+
+  const status = asNumber(row.statusvalue ?? row.StatusValue, 0);
+  if (status !== 1) return null;
+
+  const contentId = asNumber(row.module_id ?? row.content_id ?? row.contentId, Number.NaN);
+  if (!Number.isFinite(contentId)) return null;
+
+  const chapterId = asNumber(row.chapter_id ?? row.chapterId, 0);
+  return {
+    contentId,
+    chapterId: Number.isFinite(chapterId) ? chapterId : 0,
+  };
+}
+
 export const playerApi = createApi({
   reducerPath: 'playerApi',
   baseQuery: axiosBaseQuery(),
@@ -76,30 +128,37 @@ export const playerApi = createApi({
     'Certificate',
   ],
   endpoints: (builder) => ({
-    getCourseHierarchy: builder.query<CourseHier, { coursePublishId: number }>({
-      query: ({ coursePublishId }) => ({
-        url: ENDPOINTS.STUDENT.COURSE_HIER,
-        data: { course_publish_id: coursePublishId },
+    getCourseHierarchy: builder.query<
+      CourseHier,
+      { coursePublishId: number; courseId: number }
+    >({
+      query: ({ coursePublishId, courseId }) => ({
+        url: ENDPOINTS.STUDENT.TRAINEE_COURSE_PUBLISH_HIER,
+        data: {
+          coursePublishId: String(coursePublishId),
+          courseId: String(courseId),
+        },
       }),
-      transformResponse: (response: unknown, _meta, arg) =>
-        buildCourseHierarchy(response, arg.coursePublishId),
+      transformResponse: (response, _meta, arg) =>
+        transformHierarchyResponse(response, arg.coursePublishId, arg.courseId),
       providesTags: (_result, _error, arg) => [
         { type: 'Hierarchy', id: arg.coursePublishId },
       ],
     }),
 
     getCurrentModule: builder.query<
-      TraineeCurrentModuleResponse,
-      { coursePublishId: number; courseId?: number; curriculumId?: number }
+      TraineeCurrentModuleResponse | null,
+      { coursePublishId: number; courseId: number; curriculumId: number }
     >({
       query: ({ coursePublishId, courseId, curriculumId }) => ({
         url: ENDPOINTS.STUDENT.CURRENT_MODULE,
         data: {
-          course_publish_id: coursePublishId,
-          course_id: courseId,
-          curriculum_id: curriculumId,
+          coursePublishId: String(coursePublishId),
+          courseId: String(courseId),
+          curriculumId: String(curriculumId),
         },
       }),
+      transformResponse: (response) => transformCurrentModuleResponse(response),
       providesTags: (_result, _error, arg) => [
         { type: 'CurrentModule', id: arg.coursePublishId },
       ],
@@ -119,12 +178,11 @@ export const playerApi = createApi({
       query: ({ coursePublishId, curriculumId, contentId, seconds, totalSeconds, action }) => ({
         url: ENDPOINTS.STUDENT.MODULE_PROGRESS,
         data: {
-          course_publish_id: coursePublishId,
-          curriculum_id: curriculumId,
-          content_id: contentId,
-          seconds,
-          total_seconds: totalSeconds,
-          action,
+          coursePublishId: String(coursePublishId),
+          curriculumId: curriculumId != null ? String(curriculumId) : undefined,
+          videoUnitId: String(contentId),
+          lastViewedPos: seconds,
+          maxViewedPos: totalSeconds ?? seconds,
         },
       }),
       invalidatesTags: (_result, _error, arg) => [
@@ -140,9 +198,9 @@ export const playerApi = createApi({
       query: ({ coursePublishId, curriculumId, contentId, seconds }) => ({
         url: ENDPOINTS.STUDENT.TEST_PROGRESS,
         data: {
-          course_publish_id: coursePublishId,
-          curriculum_id: curriculumId,
-          content_id: contentId,
+          coursePublishId: String(coursePublishId),
+          curriculumId: curriculumId != null ? String(curriculumId) : undefined,
+          contentId,
           seconds,
         },
       }),
@@ -162,9 +220,9 @@ export const playerApi = createApi({
       query: ({ coursePublishId, curriculumId, contentId, points, credits, completed }) => ({
         url: ENDPOINTS.STUDENT.TRAINEE_POINTS,
         data: {
-          course_publish_id: coursePublishId,
-          curriculum_id: curriculumId,
-          content_id: contentId,
+          coursePublishId: String(coursePublishId),
+          curriculumId: curriculumId != null ? String(curriculumId) : undefined,
+          contentId,
           points,
           credits,
           completed,
@@ -178,14 +236,24 @@ export const playerApi = createApi({
 
     saveCreditTime: builder.mutation<
       unknown,
-      { coursePublishId: number; curriculumId?: number; action: 'start' | 'stop' }
+      {
+        coursePublishId: number;
+        courseId: number;
+        studentId: number;
+        hourId?: number;
+        startCourse?: number;
+        stopCourse?: number;
+      }
     >({
-      query: ({ coursePublishId, curriculumId, action }) => ({
+      query: ({ coursePublishId, courseId, studentId, hourId, startCourse, stopCourse }) => ({
         url: ENDPOINTS.STUDENT.TRAINEE_CREDIT_TIME,
         data: {
-          course_publish_id: coursePublishId,
-          curriculum_id: curriculumId,
-          action,
+          hourId: hourId ?? 0,
+          coursePublishId: String(coursePublishId),
+          courseId: String(courseId),
+          studentId: String(studentId),
+          startCourse: startCourse ?? 0,
+          stopCourse: stopCourse ?? 0,
         },
       }),
     }),
@@ -196,7 +264,11 @@ export const playerApi = createApi({
     >({
       query: ({ memberId, curriculumId, contentId }) => ({
         url: ENDPOINTS.STUDENT.MODULE_NOTES_GET,
-        data: { member_id: memberId, curriculum_id: curriculumId, content_id: contentId },
+        data: {
+          memberId: String(memberId),
+          curriculumId: String(curriculumId),
+          contentId: String(contentId),
+        },
       }),
       providesTags: (_result, _error, arg) => [{ type: 'Notes', id: arg.contentId }],
     }),
@@ -207,7 +279,12 @@ export const playerApi = createApi({
     >({
       query: ({ memberId, curriculumId, contentId, notes }) => ({
         url: ENDPOINTS.STUDENT.MODULE_NOTES_SAVE,
-        data: { member_id: memberId, curriculum_id: curriculumId, content_id: contentId, notes },
+        data: {
+          memberId: String(memberId),
+          curriculumId: String(curriculumId),
+          contentId: String(contentId),
+          notes,
+        },
       }),
       invalidatesTags: (_result, _error, arg) => [{ type: 'Notes', id: arg.contentId }],
     }),
@@ -219,10 +296,10 @@ export const playerApi = createApi({
       query: ({ memberId, curriculumId, contentId, coursePublishId }) => ({
         url: ENDPOINTS.COMMUNICATION.GET_MESSAGES,
         data: {
-          member_id: memberId,
-          curriculum_id: curriculumId,
-          content_id: contentId,
-          course_publish_id: coursePublishId,
+          memberId: String(memberId),
+          curriculumId: String(curriculumId),
+          contentId: String(contentId),
+          coursePublishId: String(coursePublishId),
         },
       }),
       providesTags: (_result, _error, arg) => [{ type: 'Messages', id: arg.contentId }],
@@ -234,7 +311,12 @@ export const playerApi = createApi({
     >({
       query: ({ memberId, curriculumId, contentId, message }) => ({
         url: ENDPOINTS.COMMUNICATION.SEND_MESSAGE,
-        data: { member_id: memberId, curriculum_id: curriculumId, content_id: contentId, message },
+        data: {
+          memberId: String(memberId),
+          curriculumId: String(curriculumId),
+          contentId: String(contentId),
+          message,
+        },
       }),
       invalidatesTags: (_result, _error, arg) => [{ type: 'Messages', id: arg.contentId }],
     }),
@@ -242,7 +324,7 @@ export const playerApi = createApi({
     getCourseRating: builder.query<CourseRatingResponse, { coursePublishId: number }>({
       query: ({ coursePublishId }) => ({
         url: ENDPOINTS.STUDENT.COURSE_RATING,
-        data: { course_publish_id: coursePublishId },
+        data: { coursePublishId: String(coursePublishId) },
       }),
       providesTags: (_result, _error, arg) => [{ type: 'Rating', id: arg.coursePublishId }],
     }),
@@ -253,7 +335,7 @@ export const playerApi = createApi({
     >({
       query: ({ coursePublishId, rating, comment }) => ({
         url: ENDPOINTS.STUDENT.COURSE_RATING,
-        data: { course_publish_id: coursePublishId, rating, comment },
+        data: { coursePublishId: String(coursePublishId), rating, comment },
       }),
       invalidatesTags: (_result, _error, arg) => [{ type: 'Rating', id: arg.coursePublishId }],
     }),
@@ -261,7 +343,7 @@ export const playerApi = createApi({
     getCertificate: builder.query<CertificateResponse, { coursePublishId: number }>({
       query: ({ coursePublishId }) => ({
         url: ENDPOINTS.STUDENT.CERTIFICATE,
-        data: { course_publish_id: coursePublishId },
+        data: { coursePublishId: String(coursePublishId) },
       }),
       providesTags: (_result, _error, arg) => [
         { type: 'Certificate', id: arg.coursePublishId },
@@ -285,4 +367,3 @@ export const {
   useSubmitCourseRatingMutation,
   useGetCertificateQuery,
 } = playerApi;
-

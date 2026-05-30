@@ -11,9 +11,13 @@ export default function AuthLayout() {
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-        headerStyle: { backgroundColor: colors.surface },
-        headerTintColor: colors.text,
+        // Transparent so AuthShell gradient shows through during transition
+        contentStyle: { backgroundColor: 'transparent' },
+        // Smooth directional slide — same as Framer's page transition default
+        animation: 'slide_from_right',
+        animationDuration: 280,
+        // Prevent flash of background color during transition
+        presentation: 'card',
       }}
     >
       <Stack.Screen name="select-tenant" options={{ headerShown: false }} />
@@ -21,9 +25,7 @@ export default function AuthLayout() {
       <Stack.Screen
         name="forgot-password"
         options={{
-          headerShown: true,
-          headerTitle: 'Forgot Password',
-          headerBackTitle: 'Back',
+          headerShown: false, // We use our own back button in AuthShell
         }}
       />
     </Stack>

@@ -116,6 +116,10 @@ export default function CoursesScreen() {
                   pathname: '/(student)/course/[id]',
                   params: {
                     id: String(course.course_publish_id || course.course_id),
+                    ...(course.curriculum_id
+                      ? { curriculumId: String(course.curriculum_id) }
+                      : {}),
+                    courseId: String(course.course_id),
                   },
                 })
               }

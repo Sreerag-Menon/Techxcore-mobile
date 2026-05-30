@@ -104,6 +104,10 @@ function normalizeLoginResponse(
     ),
     organization_name: asString(data.organization_name ?? data.org_name),
     campus_id: asNumber(data.campus_id),
+    acad_year_id: (() => {
+      const id = asNumber(data.acad_year_id ?? data.acadYearId, 0);
+      return id > 0 ? id : undefined;
+    })(),
   };
 }
 

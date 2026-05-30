@@ -3,6 +3,7 @@
  *
  * A versatile text input with floating-label animation, error display,
  * left/right icon support, focus state highlight, and password toggle.
+ * Uses Satoshi font and the new inputBackground / borderCurve tokens.
  */
 import React, { memo, useRef, useState } from 'react';
 import {
@@ -13,8 +14,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
-import { useTheme } from '@/theme';
+import { useTheme, authGlassSurface } from '@/theme';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,17 +38,46 @@ export interface InputProps {
   numberOfLines?: number;
   maxLength?: number;
   testID?: string;
+  /** Floating-label cutout background — use `glass` on auth GlassCard fields */
+  labelBackground?: 'surface' | 'glass';
 }
 
 // ---------------------------------------------------------------------------
-// Eye icon (inline SVG-free substitute using Text glyphs)
+// SVG Eye Icons — proper icons, not emoji
 // ---------------------------------------------------------------------------
 
-function EyeIcon({ visible, color }: { visible: boolean; color: string }) {
+function EyeOpenIcon({ color }: { color: string }) {
   return (
-    <Text style={{ fontSize: 18, color, lineHeight: 22 }}>
-      {visible ? '🙈' : '👁'}
-    </Text>
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M2 12C2 12 5 5 12 5C19 5 22 12 22 12C22 12 19 19 12 19C5 19 2 12 2 12Z"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function EyeOffIcon({ color }: { color: string }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M17.94 17.94C16.2306 19.243 14.1491 19.9649 12 20C5 20 1 12 1 12C2.24389 9.68192 3.96914 7.65661 6.06 6.06M9.9 4.24C10.5883 4.07888 11.2931 3.99834 12 4C19 4 23 12 23 12C22.393 13.1356 21.6691 14.2048 20.84 15.19M1 1L23 23"
+        stroke={color}
+        strokeWidth={1.75}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
   );
 }
 
@@ -70,8 +101,9 @@ const Input = memo(function Input({
   numberOfLines,
   maxLength,
   testID,
+  labelBackground = 'surface',
 }: InputProps) {
-  const { colors, isDark } = useTheme();
+  const { colors, fontFamily, isDark } = useTheme();
   const [focused, setFocused] = useState(false);
   const [passwordVisible, setPasswordVisible] = useState(false);
   const labelAnim = useRef(new Animated.Value(value ? 1 : 0)).current;
@@ -80,7 +112,7 @@ const Input = memo(function Input({
     setFocused(true);
     Animated.timing(labelAnim, {
       toValue: 1,
-      duration: 180,
+      duration: 160,
       useNativeDriver: false,
     }).start();
   };
@@ -90,7 +122,7 @@ const Input = memo(function Input({
     if (!value) {
       Animated.timing(labelAnim, {
         toValue: 0,
-        duration: 180,
+        duration: 160,
         useNativeDriver: false,
       }).start();
     }
@@ -99,17 +131,25 @@ const Input = memo(function Input({
   const labelStyle = label
     ? {
         position: 'absolute' as const,
-        left: leftIcon ? 40 : 14,
-        top: labelAnim.interpolate({ inputRange: [0, 1], outputRange: [14, -8] }),
-        fontSize: labelAnim.interpolate({ inputRange: [0, 1], outputRange: [15, 12] }),
+        left: leftIcon ? 42 : 14,
+        top: labelAnim.interpolate({ inputRange: [0, 1], outputRange: [15, -8] }),
+        fontSize: labelAnim.interpolate({ inputRange: [0, 1], outputRange: [15, 11] }),
         color: error
           ? colors.error
           : focused
           ? colors.primary
           : colors.textSecondary,
-        backgroundColor: colors.surface,
+        backgroundColor:
+          focused || value
+            ? labelBackground === 'glass'
+              ? isDark
+                ? authGlassSurface.dark
+                : authGlassSurface.light
+              : colors.surface
+            : 'transparent',
         paddingHorizontal: 2,
         zIndex: 1,
+        fontFamily: fontFamily.medium,
       }
     : null;
 
@@ -124,21 +164,29 @@ const Input = memo(function Input({
   const effectiveRightIcon = showPasswordToggle ? undefined : rightIcon;
 
   return (
-    <View className="w-full">
+    <View style={{ width: '100%' }}>
       <View
         style={{
           borderWidth: 1.5,
           borderColor,
           borderRadius: 12,
+          // @ts-ignore — borderCurve is iOS 13+, silenced for cross-platform
+          borderCurve: 'continuous',
           backgroundColor: disabled
-            ? isDark ? '#1F2937' : '#F3F4F6'
-            : colors.surface,
+            ? colors.divider
+            : colors.inputBackground,
           minHeight: multiline ? 100 : 52,
           flexDirection: 'row',
           alignItems: multiline ? 'flex-start' : 'center',
           paddingHorizontal: 14,
           paddingTop: multiline ? 16 : 0,
           paddingBottom: multiline ? 10 : 0,
+          // Subtle inset shadow for depth when focused
+          ...(focused
+            ? {
+                boxShadow: `inset 0 1px 3px ${colors.primary}14, 0 0 0 3px ${colors.primaryLight}`,
+              }
+            : {}),
         }}
       >
         {/* Left icon */}
@@ -177,6 +225,7 @@ const Input = memo(function Input({
             flex: 1,
             color: colors.text,
             fontSize: 15,
+            fontFamily: fontFamily.regular,
             paddingTop: label ? 10 : 0,
             paddingRight: (showPasswordToggle || effectiveRightIcon) ? 8 : 0,
             textAlignVertical: multiline ? 'top' : 'center',
@@ -190,7 +239,11 @@ const Input = memo(function Input({
             hitSlop={8}
             style={{ marginLeft: 6 }}
           >
-            <EyeIcon visible={passwordVisible} color={colors.textSecondary} />
+            {passwordVisible ? (
+              <EyeOffIcon color={colors.textSecondary} />
+            ) : (
+              <EyeOpenIcon color={colors.textSecondary} />
+            )}
           </Pressable>
         ) : effectiveRightIcon ? (
           <View style={{ marginLeft: 6 }}>
@@ -206,8 +259,13 @@ const Input = memo(function Input({
       {/* Error message */}
       {!!error && (
         <Text
-          className="text-xs mt-1 ml-1"
-          style={{ color: colors.error }}
+          style={{
+            fontSize: 12,
+            marginTop: 4,
+            marginLeft: 4,
+            color: colors.error,
+            fontFamily: fontFamily.regular,
+          }}
           accessibilityRole="alert"
         >
           {error}

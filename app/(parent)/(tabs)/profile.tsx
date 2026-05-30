@@ -122,7 +122,7 @@ export default function ParentProfileScreen() {
                 Organization
               </Text>
               <Text style={{ color: colors.text, fontSize: 15, fontWeight: '600' }}>
-                {profile?.organization_name || 'AAI LMS'}
+                {profile?.organization_name || 'Techxcore'}
               </Text>
             </View>
             {profile?.phone ? (

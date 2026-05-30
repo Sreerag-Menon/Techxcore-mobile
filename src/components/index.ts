@@ -10,3 +10,5 @@ export { default as ProgressBar } from './ProgressBar';
 export { default as Skeleton } from './Skeleton';
 export * from './Skeleton';
 export * from './form';
+export * from './auth';
+

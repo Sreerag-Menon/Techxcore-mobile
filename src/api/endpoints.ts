@@ -22,6 +22,7 @@ export const ENDPOINTS = {
     COURSE_DETAILS: '/get_course_publish_details',
     COURSE_CONTENT: '/get_course_publish_content_hier_v2',
     COURSE_HIER: '/get_course_publish_content_hier_v2',
+    TRAINEE_COURSE_PUBLISH_HIER: '/get_trainee_course_publish_hier_v2',
     CURRENT_MODULE: '/get_trainee_current_module',
     MODULE_PROGRESS: '/insert_update_trainee_module_time',
     TEST_PROGRESS: '/insert_update_trainee_test_time',

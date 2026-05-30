@@ -8,7 +8,7 @@
 import { APP_CONFIG } from './config';
 
 export interface TenantRegistryEntry {
-  /** Canonical uppercase code, e.g. "AAI001" */
+  /** Canonical uppercase code, e.g. "SCHOOL01" */
   code: string;
   /** Optional label shown before getSiteDetails resolves site name */
   displayName?: string;
@@ -28,14 +28,14 @@ export const TENANT_REGISTRY: TenantRegistryEntry[] = [
   {
     code: 'LOCAL',
     displayName: 'Local Development',
-    baseUrl: 'http://10.0.2.2:8081',
+    baseUrl: 'http://10.0.2.2:8000',
     active: true,
   },
   // Example production entry — replace with real institution URLs:
   // {
-  //   code: 'AAI001',
-  //   displayName: 'AAI Demo LMS',
-  //   baseUrl: 'https://demo.aaisolutions.dev',
+  //   code: 'SCHOOL01',
+  //   displayName: 'Example School LMS',
+  //   baseUrl: 'https://school.example.com',
   //   active: true,
   // },
 ];

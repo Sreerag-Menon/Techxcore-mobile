@@ -1,5 +1,5 @@
 /**
- * Axios HTTP client configured for the AAI backend.
+ * Axios HTTP client configured for the LMS backend.
  *
  * Features:
  *  - Base URL from APP_CONFIG

@@ -19,6 +19,7 @@ export interface LoginResponse {
   profile_image?: string;
   organization_name?: string;
   campus_id?: number;
+  acad_year_id?: number;
 }
 
 export type LoginRejectReason =

@@ -1,3 +1,15 @@
+/**
+ * Login screen — Step 2 of the auth flow.
+ *
+ * Visual: AuthShell gradient + GlassCard with institution badge in the header.
+ * Animations:
+ *  - Content springs in via AuthShellContent (FadeInDown.springify)
+ *  - Error state triggers animated shake on the form card
+ *  - TealProgressLine shows step 1 (66%)
+ *  - Institution logo crossfades in from center (fallback for shared element)
+ *
+ * All Redux logic, react-hook-form, Zod, and router calls are preserved exactly.
+ */
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -5,10 +17,28 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Link, useRouter } from 'expo-router';
 import { Alert, Image, Pressable, Switch, Text, View } from 'react-native';
 import Toast from 'react-native-toast-message';
+import Animated, {
+  FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withSequence,
+  withSpring,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
-import { Button, Card } from '../../src/components';
+import { Button } from '../../src/components';
 import { FormInput } from '../../src/components/form';
-import { KeyboardLayout } from '../../src/layouts';
+import {
+  AuthHeader,
+  GlassCard,
+  AuthShellContent,
+  TealProgressLine,
+} from '../../src/components/auth';
+import { authCopy } from '../../src/constants/authCopy';
+import { AuthShell } from '../../src/layouts';
+import { getAuthOverlayColors } from '../../src/theme';
 import { useAppDispatch, useAppSelector } from '../../src/redux';
 import {
   clearUserSession,
@@ -20,24 +50,65 @@ import { useTheme } from '../../src/theme';
 import { isParentMemberType, normalizeMemberType } from '../../src/utils';
 import type { LoginRejectReason } from '../../src/types/auth.types';
 
+// ---------------------------------------------------------------------------
+// Validation schema (preserved)
+// ---------------------------------------------------------------------------
 const loginSchema = z.object({
   memberLogin: z
     .string()
-    .min(1, 'Email is required')
-    .email('Enter a valid email address'),
-  memberPwd: z.string().min(1, 'Password is required'),
+    .min(1, authCopy.validation.emailRequired)
+    .email(authCopy.validation.emailInvalid),
+  memberPwd: z.string().min(1, authCopy.validation.passwordRequired),
   rememberMe: z.boolean(),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
+// ---------------------------------------------------------------------------
+// Inline SVG icons
+// ---------------------------------------------------------------------------
+function ChevronLeftIcon({ color }: { color: string }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M15 18L9 12L15 6"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 export default function LoginScreen() {
   const router = useRouter();
   const dispatch = useAppDispatch();
-  const { colors, isDark } = useTheme();
+  const { colors, fontFamily, isDark } = useTheme();
+  const overlay = getAuthOverlayColors(colors, isDark);
   const isLoading = useAppSelector((state) => state.auth.isLoading);
   const currentTenant = useAppSelector((state) => state.tenant.currentTenant);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Shake animation for error state
+  const shakeX = useSharedValue(0);
+  const shakeStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: shakeX.value }],
+  }));
+
+  const triggerShake = () => {
+    // 3-step recoil: quick left snap → spring right → settle centre.
+    // damping/stiffness balanced to feel like a physical knock, not a tremor.
+    shakeX.value = withSequence(
+      withTiming(-6, { duration: 60, easing: Easing.out(Easing.quad) }),
+      withSpring(6, { damping: 14, stiffness: 500 }),
+      withSpring(0, { damping: 20, stiffness: 350 }),
+    );
+  };
 
   const { control, handleSubmit } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -48,6 +119,7 @@ export default function LoginScreen() {
     },
   });
 
+  // --- All existing login logic preserved exactly ---
   const onSubmit = handleSubmit(async (values) => {
     try {
       setSubmitError(null);
@@ -58,8 +130,6 @@ export default function LoginScreen() {
         }),
       ).unwrap();
 
-      // --- Member type gate ---
-      // Only Students (member_type: 1) and Parents (member_type: 4) are allowed
       const memberType = normalizeMemberType(response.member_type);
       const isAllowed =
         memberType === '1' ||
@@ -69,19 +139,20 @@ export default function LoginScreen() {
 
       if (!isAllowed) {
         await dispatch(logoutUser());
-        setSubmitError('This app is available for Students and Parents only.');
+        setSubmitError(authCopy.login.accessRestricted);
+        triggerShake();
         Toast.show({
           type: 'error',
-          text1: 'Access restricted',
-          text2: 'This app is available for Students and Parents only.',
+          text1: authCopy.login.toastAccessRestricted,
+          text2: authCopy.login.accessRestricted,
         });
         return;
       }
 
       Toast.show({
         type: 'success',
-        text1: 'Login successful',
-        text2: `Welcome back, ${response.first_name || 'member'}.`,
+        text1: authCopy.login.toastLoginSuccess,
+        text2: authCopy.login.welcomeBack(response.first_name || 'member'),
       });
 
       const isParent = isParentMemberType(response.member_type);
@@ -90,13 +161,13 @@ export default function LoginScreen() {
       const reason = error as LoginRejectReason;
       if (reason?.code === 'ALREADY_LOGGED_IN' && reason.uMemberId) {
         Alert.alert(
-          'Already signed in',
+          authCopy.login.alertAlreadySignedIn,
           reason.message ||
             'You are already logged in on another device. Do you want to continue here?',
           [
-            { text: 'Cancel', style: 'cancel' },
+            { text: authCopy.login.alertCancel, style: 'cancel' },
             {
-              text: 'Continue',
+              text: authCopy.login.alertContinue,
               style: 'default',
               onPress: async () => {
                 try {
@@ -117,21 +188,20 @@ export default function LoginScreen() {
 
                   if (!isAllowed) {
                     await dispatch(logoutUser());
-                    setSubmitError(
-                      'This app is available for Students and Parents only.',
-                    );
+                    setSubmitError(authCopy.login.accessRestricted);
+                    triggerShake();
                     Toast.show({
                       type: 'error',
-                      text1: 'Access restricted',
-                      text2: 'This app is available for Students and Parents only.',
+                      text1: authCopy.login.toastAccessRestricted,
+                      text2: authCopy.login.accessRestricted,
                     });
                     return;
                   }
 
                   Toast.show({
                     type: 'success',
-                    text1: 'Login successful',
-                    text2: `Welcome back, ${response.first_name || 'member'}.`,
+                    text1: authCopy.login.toastLoginSuccess,
+                    text2: authCopy.login.welcomeBack(response.first_name || 'member'),
                   });
 
                   const isParent = isParentMemberType(response.member_type);
@@ -144,9 +214,10 @@ export default function LoginScreen() {
                       ? err.message
                       : 'Unable to sign in right now.';
                   setSubmitError(fallback);
+                  triggerShake();
                   Toast.show({
                     type: 'error',
-                    text1: 'Login failed',
+                    text1: authCopy.login.toastLoginFailed,
                     text2: fallback,
                   });
                 }
@@ -165,9 +236,10 @@ export default function LoginScreen() {
             : 'Unable to sign in right now.';
 
       setSubmitError(message);
+      triggerShake();
       Toast.show({
         type: 'error',
-        text1: 'Login failed',
+        text1: authCopy.login.toastLoginFailed,
         text2: message,
       });
     }
@@ -179,18 +251,28 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardLayout contentContainerStyle={{ justifyContent: 'center' }}>
-      <View style={{ gap: 24 }}>
-        {/* Institution branding */}
-        {currentTenant && (
-          <View style={{ alignItems: 'center', gap: 10, marginBottom: 8 }}>
+    <AuthShell step={1}>
+      <AuthShellContent>
+        {/* Institution badge above header */}
+        {currentTenant ? (
+          <Animated.View
+            entering={FadeIn.duration(300)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              marginBottom: 8,
+            }}
+          >
             {currentTenant.logoUrl ? (
               <View
                 style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 12,
-                  backgroundColor: isDark ? '#1F2937' : '#F3F4F6',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  // @ts-ignore
+                  borderCurve: 'continuous',
+                  backgroundColor: isDark ? colors.surfaceRaised : colors.onPrimary,
                   alignItems: 'center',
                   justifyContent: 'center',
                   overflow: 'hidden',
@@ -198,172 +280,188 @@ export default function LoginScreen() {
               >
                 <Image
                   source={{ uri: currentTenant.logoUrl }}
-                  style={{ width: 44, height: 44, resizeMode: 'contain' }}
+                  style={{ width: 28, height: 28, resizeMode: 'contain' }}
                 />
               </View>
-            ) : null}
+            ) : (
+              <View
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 10,
+                  // @ts-ignore
+                  borderCurve: 'continuous',
+                  // Dark: solid elevated surface — clearly visible on near-black gradient
+                  // Light: slight white-glass feel on teal
+                  backgroundColor: isDark ? colors.surfaceRaised : 'rgba(255, 255, 255, 0.25)',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text
+                  style={{
+                    color: overlay.title,
+                    fontFamily: fontFamily.bold,
+                    fontSize: 14,
+                  }}
+                >
+                  {(currentTenant.shortName || currentTenant.siteName || 'I')
+                    .charAt(0)
+                    .toUpperCase()}
+                </Text>
+              </View>
+            )}
             <Text
               style={{
-                color: colors.textSecondary,
-                fontSize: 13,
-                fontWeight: '600',
+                color: overlay.linkAccent,
+                fontSize: 14,
+                fontFamily: fontFamily.medium,
               }}
             >
               {currentTenant.siteName}
             </Text>
-          </View>
-        )}
+          </Animated.View>
+        ) : null}
 
-        <View style={{ gap: 8 }}>
-          <Text
-            style={{
-              color: colors.primary,
-              fontSize: 14,
-              fontWeight: '700',
-              letterSpacing: 1.2,
-              textTransform: 'uppercase',
-            }}
-          >
-            AAI LMS
-          </Text>
-          <Text
-            style={{
-              color: colors.text,
-              fontSize: 32,
-              fontWeight: '700',
-            }}
-          >
-            Sign in
-          </Text>
-          <Text
-            style={{
-              color: colors.textSecondary,
-              fontSize: 15,
-              lineHeight: 22,
-            }}
-          >
-            Access your student or parent portal with your existing LMS account.
-          </Text>
-        </View>
+        <AuthHeader
+          eyebrow={authCopy.brandName}
+          title={authCopy.login.title}
+          subtitle={authCopy.login.subtitle}
+        />
 
-        <Card variant="elevated" padding="lg">
-          <View style={{ gap: 16 }}>
-            <FormInput
-              control={control}
-              name="memberLogin"
-              label="Email"
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
+        {/* Glass form card — shakes on error */}
+        <Animated.View style={shakeStyle}>
+          <GlassCard>
+            <TealProgressLine step={1} />
+            <View style={{ gap: 16 }}>
+              <FormInput
+                control={control}
+                name="memberLogin"
+                label={authCopy.login.emailLabel}
+                placeholder={authCopy.login.emailPlaceholder}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                labelBackground="glass"
+              />
 
-            <FormInput
-              control={control}
-              name="memberPwd"
-              label="Password"
-              placeholder="Enter your password"
-              secureTextEntry
-              autoCapitalize="none"
-            />
+              <FormInput
+                control={control}
+                name="memberPwd"
+                label={authCopy.login.passwordLabel}
+                placeholder={authCopy.login.passwordPlaceholder}
+                secureTextEntry
+                autoCapitalize="none"
+                labelBackground="glass"
+              />
 
-            <Controller
-              control={control}
-              name="rememberMe"
-              render={({ field }) => (
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <View style={{ flex: 1, paddingRight: 12 }}>
+              <Controller
+                control={control}
+                name="rememberMe"
+                render={({ field }) => (
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
                     <Text
                       style={{
+                        flex: 1,
                         color: colors.text,
                         fontSize: 15,
-                        fontWeight: '600',
+                        fontFamily: fontFamily.medium,
+                        paddingRight: 12,
                       }}
                     >
-                      Keep me signed in
+                      {authCopy.login.rememberMe}
                     </Text>
-                    <Text
-                      style={{
-                        color: colors.textSecondary,
-                        fontSize: 12,
-                        marginTop: 4,
+                    <Switch
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      trackColor={{
+                        false: colors.border,
+                        true: colors.primary,
                       }}
-                    >
-                      Sessions stay active for the token lifetime provided by the LMS.
-                    </Text>
+                      thumbColor={field.value ? colors.onPrimary : colors.surface}
+                    />
                   </View>
-                  <Switch
-                    value={field.value}
-                    onValueChange={field.onChange}
-                    trackColor={{
-                      false: colors.border,
-                      true: colors.primary,
-                    }}
-                  />
-                </View>
-              )}
-            />
+                )}
+              />
 
-            {submitError ? (
-              <Text
-                style={{
-                  color: colors.error,
-                  fontSize: 13,
-                  lineHeight: 18,
-                }}
-              >
-                {submitError}
-              </Text>
-            ) : null}
-
-            <Button
-              title="Sign In"
-              onPress={onSubmit}
-              loading={isLoading}
-              fullWidth
-            />
-
-            <Link href="/(auth)/forgot-password" asChild>
-              <Pressable>
-                <Text
+              {/* Error message */}
+              {submitError ? (
+                <View
                   style={{
-                    color: colors.primary,
-                    fontSize: 14,
-                    fontWeight: '600',
-                    textAlign: 'center',
+                    backgroundColor: `${colors.error}14`,
+                    borderRadius: 10,
+                    padding: 12,
+                    borderLeftWidth: 3,
+                    borderLeftColor: colors.error,
                   }}
                 >
-                  Forgot your password?
-                </Text>
-              </Pressable>
-            </Link>
-          </View>
-        </Card>
+                  <Text
+                    style={{
+                      color: colors.error,
+                      fontSize: 13,
+                      fontFamily: fontFamily.regular,
+                      lineHeight: 18,
+                    }}
+                    accessibilityRole="alert"
+                  >
+                    {submitError}
+                  </Text>
+                </View>
+              ) : null}
 
-        {/* Switch institution link */}
+              <Button
+                title={authCopy.login.signIn}
+                onPress={onSubmit}
+                loading={isLoading}
+                fullWidth
+              />
+
+              <Link href="/(auth)/forgot-password" asChild>
+                <Pressable style={{ alignSelf: 'center', paddingVertical: 4 }}>
+                  <Text
+                    style={{
+                      color: colors.primary,
+                      fontSize: 14,
+                      fontFamily: fontFamily.medium,
+                      textDecorationLine: 'underline',
+                      textDecorationColor: `${colors.primary}60`,
+                    }}
+                  >
+                    {authCopy.login.forgotPassword}
+                  </Text>
+                </Pressable>
+              </Link>
+            </View>
+          </GlassCard>
+        </Animated.View>
+
+        {/* Switch institution */}
         {currentTenant && (
-          <Pressable onPress={handleSwitchInstitution}>
+          <Pressable
+            onPress={handleSwitchInstitution}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 20, gap: 4 }}
+          >
+            <ChevronLeftIcon color={overlay.link} />
             <Text
               style={{
-                color: colors.textSecondary,
+                color: overlay.link,
                 fontSize: 13,
-                fontWeight: '500',
-                textAlign: 'center',
+                fontFamily: fontFamily.regular,
               }}
             >
-              Not your institution?{' '}
-              <Text style={{ color: colors.primary, fontWeight: '600' }}>
-                Switch
+              {authCopy.login.switchInstitutionPrefix} {currentTenant.siteName}?{' '}
+              <Text style={{ color: overlay.linkAccent, fontFamily: fontFamily.medium }}>
+                {authCopy.login.switchInstitution}
               </Text>
             </Text>
           </Pressable>
         )}
-      </View>
-    </KeyboardLayout>
+      </AuthShellContent>
+    </AuthShell>
   );
 }

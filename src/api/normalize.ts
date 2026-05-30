@@ -1,6 +1,11 @@
 type UnknownRecord = Record<string, unknown>;
 
-import type { CourseChapter, CourseHier, CourseModule } from '../types/course.types';
+import type {
+  CourseChapter,
+  CourseHier,
+  CourseModule,
+  CourseModuleStatus,
+} from '../types/course.types';
 
 const DEFAULT_KEYS = [
   'data',
@@ -146,35 +151,158 @@ function asOptionalNumber(value: unknown): number | undefined {
   return Number.isFinite(num) ? num : undefined;
 }
 
-function toModule(raw: UnknownRecord, chapterId: number): CourseModule | null {
-  const contentId = asNumber(raw.content_id ?? raw.contentId ?? raw.module_id ?? raw.id, Number.NaN);
-  if (!Number.isFinite(contentId)) return null;
+function parseTraineeModuleStatus(status: unknown): CourseModuleStatus {
+  const normalized = asString(status, '').trim().toLowerCase();
+  if (normalized === 'completed') return 'completed';
+  if (normalized.includes('progress') || normalized === 'new' || normalized === 'pending') {
+    return 'in_progress';
+  }
+  return 'not_started';
+}
 
-  const title = asString(raw.content_name ?? raw.contentName ?? raw.title ?? raw.name, '').trim();
-  const rawType = asString(raw.content_type ?? raw.type ?? raw.contentType, '').trim().toLowerCase();
-  const url = asString(raw.content_url ?? raw.url ?? raw.contentUrl, '').trim();
+function moduleBase(raw: UnknownRecord, chapterId: number, contentId: number) {
+  const title = asString(
+    raw.module ?? raw.content_name ?? raw.contentName ?? raw.title ?? raw.name,
+    '',
+  ).trim();
 
-  const sequential = asBoolean(raw.sequential ?? raw.is_sequential, false);
-  const isCompleted = asBoolean(raw.is_completed ?? raw.completed ?? raw.isCompleted, false);
+  const statusFromFlag = asBoolean(raw.is_completed ?? raw.completed ?? raw.isCompleted, false);
+  const status = statusFromFlag
+    ? 'completed'
+    : parseTraineeModuleStatus(raw.status ?? raw.module_progress);
 
-  const base = {
+  return {
     contentId,
     chapterId,
     title: title.length > 0 ? title : `Module ${contentId}`,
-    sequential,
-    status: isCompleted ? 'completed' : 'not_started',
-    contentLengthSeconds: asOptionalNumber(raw.content_length ?? raw.contentLength ?? raw.duration_seconds),
+    sequential: asBoolean(raw.sequential ?? raw.is_sequential, false),
+    status,
+    contentLengthSeconds: asOptionalNumber(
+      raw.content_length ?? raw.contentLength ?? raw.duration_seconds,
+    ),
     summary: {
-      lastPositionSeconds: asOptionalNumber(raw.last_position_seconds ?? raw.lastPositionSeconds),
-      totalTimeSeconds: asOptionalNumber(raw.total_time_seconds ?? raw.totalTimeSeconds),
-      completedAt: asString(raw.completed_at ?? raw.completedAt, '') || undefined,
+      lastPositionSeconds: asOptionalNumber(
+        raw.last_viewed_pos ?? raw.last_position_seconds ?? raw.lastPositionSeconds,
+      ),
+      totalTimeSeconds: asOptionalNumber(
+        raw.max_viewed_pos ?? raw.total_time_seconds ?? raw.totalTimeSeconds,
+      ),
+      completedAt: asString(raw.completed_at ?? raw.completedAt ?? raw.completed_on, '') || undefined,
     },
   } as const;
+}
 
-  if (rawType === 'video') {
-    const provider = inferVideoProvider(url);
+/** Map trainee playback row (web `mkModuleList` / API-enriched `format` + URLs). */
+function toModuleFromPlaybackRow(raw: UnknownRecord, chapterId: number): CourseModule | null {
+  const contentId = asNumber(
+    raw.video_unit_id ?? raw.content_id ?? raw.contentId ?? raw.module_id ?? raw.id,
+    Number.NaN,
+  );
+  if (!Number.isFinite(contentId)) return null;
+
+  const base = moduleBase(raw, chapterId, contentId);
+  const format = asString(raw.format, '').trim().toLowerCase();
+  const contentUrl = asString(raw.content_url ?? raw.url ?? raw.contentUrl, '').trim();
+  const browseUrl = asString(raw.browse_url, '').trim();
+  const videoUrl = asString(raw.video_url, '').trim();
+  const isUrlOnly = asBoolean(raw.is_url_only, false);
+  const isTextOnly = asBoolean(raw.is_text_only, false);
+  const isHtmlOnly = asBoolean(raw.is_html_only, false);
+  const isPpt = asBoolean(raw.is_ppt, false);
+  const isAudio = asBoolean(raw.is_audio, false);
+  const isEmbedOnly = asBoolean(raw.is_embedurl_only, false);
+
+  if (format === 'test') {
+    const testId = asNumber(raw.video_unit_id ?? raw.content_id ?? raw.test_id, contentId);
+    return { ...base, type: 'test', testId };
+  }
+
+  if (format === 'survey') {
+    return { ...base, type: 'survey', testId: contentId };
+  }
+
+  if (browseUrl === '__SCORM__' || format === 'scorm') {
+    const manifestUrl = contentUrl || browseUrl;
+    if (!manifestUrl) return null;
+    return { ...base, type: 'scorm', manifestUrl };
+  }
+
+  if (format === 'embedded' || (isUrlOnly && isEmbedOnly)) {
+    const url = contentUrl || browseUrl;
     if (!url) return null;
-    return { ...base, type: 'video', provider, url };
+    return { ...base, type: 'embedded', url };
+  }
+
+  if (format === 'html' || (isUrlOnly && !isEmbedOnly && browseUrl)) {
+    const url = contentUrl || browseUrl || videoUrl;
+    if (!url) return null;
+    return { ...base, type: 'html', url };
+  }
+
+  if (format === 'pdf' || isTextOnly) {
+    const url = contentUrl || browseUrl;
+    if (!url) return null;
+    return { ...base, type: 'pdf', url };
+  }
+
+  if (format === 'ppteditor' || isPpt) {
+    const url = contentUrl || browseUrl;
+    if (!url) return null;
+    return { ...base, type: 'ppt', url };
+  }
+
+  if (format === 'htmleditor' || isHtmlOnly) {
+    const url = contentUrl || browseUrl;
+    if (!url) return null;
+    return { ...base, type: 'html', url };
+  }
+
+  if (format === 'video' || (videoUrl && videoUrl.length > 0)) {
+    const url = contentUrl || videoUrl;
+    if (!url) return null;
+    return { ...base, type: 'video', provider: inferVideoProvider(url), url };
+  }
+
+  if (format === 'audio' || isAudio) {
+    const url = contentUrl || videoUrl || browseUrl;
+    if (!url) return null;
+    return { ...base, type: 'audio', url };
+  }
+
+  if (contentUrl) {
+    return { ...base, type: 'html', url: contentUrl };
+  }
+
+  return null;
+}
+
+function toModule(raw: UnknownRecord, chapterId: number): CourseModule | null {
+  const hasPlaybackShape =
+    raw.format != null ||
+    raw.video_unit_id != null ||
+    raw.browse_url != null ||
+    raw.video_url != null;
+
+  if (hasPlaybackShape) {
+    const fromPlayback = toModuleFromPlaybackRow(raw, chapterId);
+    if (fromPlayback) return fromPlayback;
+  }
+
+  const contentId = asNumber(
+    raw.content_id ?? raw.contentId ?? raw.module_id ?? raw.video_unit_id ?? raw.id,
+    Number.NaN,
+  );
+  if (!Number.isFinite(contentId)) return null;
+
+  const base = moduleBase(raw, chapterId, contentId);
+  const rawType = asString(raw.content_type ?? raw.type ?? raw.contentType, '')
+    .trim()
+    .toLowerCase();
+  const url = asString(raw.content_url ?? raw.url ?? raw.contentUrl, '').trim();
+
+  if (rawType === 'video' || rawType === 'm') {
+    if (!url) return null;
+    return { ...base, type: 'video', provider: inferVideoProvider(url), url };
   }
 
   if (rawType === 'pdf') {
@@ -193,26 +321,92 @@ function toModule(raw: UnknownRecord, chapterId: number): CourseModule | null {
     return { ...base, type: 'scorm', manifestUrl };
   }
 
-  if (rawType === 'test' || rawType === 'survey') {
-    const testId = asNumber(raw.test_id ?? raw.testId ?? raw.content_id, Number.NaN);
-    if (!Number.isFinite(testId)) return null;
-    return { ...base, type: rawType, testId };
+  if (rawType === 'test' || rawType === 't') {
+    const testId = asNumber(raw.test_id ?? raw.testId ?? raw.content_id, contentId);
+    return { ...base, type: 'test', testId };
   }
 
-  // Backend sometimes reports non-player types as `document`.
+  if (rawType === 'survey' || rawType === 's') {
+    return { ...base, type: 'survey', testId: contentId };
+  }
+
   if (rawType === 'document') {
     if (!url) return null;
     return { ...base, type: 'html', url };
   }
 
-  // Allow explicit mobile types if backend starts sending them.
   if (rawType === 'html' || rawType === 'embedded' || rawType === 'ppt') {
     if (!url) return null;
     return { ...base, type: rawType, url };
   }
 
-  // Unknown type: ignore (keeps the player robust).
   return null;
+}
+
+/**
+ * Normalize `get_trainee_course_publish_hier_v2` into chapters + playable modules.
+ * Matches web `ChapterInner.handleGetSubjectChapterListResponse`.
+ */
+export function buildTraineePlaybackHierarchy(
+  response: unknown,
+  coursePublishId: number,
+): CourseHier {
+  const row =
+    extractItem<UnknownRecord>(response) ?? extractArray<UnknownRecord>(response)[0] ?? null;
+
+  if (!row) {
+    return { coursePublishId, chapters: [] };
+  }
+
+  const chapterRows = extractArray<UnknownRecord>(row.course_chapter_details, ['chapters']);
+  const moduleRows = extractArray<UnknownRecord>(row.course_module_details, ['modules']);
+
+  if (chapterRows.length === 0 && moduleRows.length > 0) {
+    return buildCourseHierarchy({ modules: moduleRows }, coursePublishId);
+  }
+
+  const chapters: CourseChapter[] = chapterRows
+    .map((chapterRaw): CourseChapter | null => {
+      const chapterId = asNumber(
+        chapterRaw.chapter_id ?? chapterRaw.chapterId ?? chapterRaw.id,
+        Number.NaN,
+      );
+      if (!Number.isFinite(chapterId)) return null;
+
+      const title = asString(
+        chapterRaw.name ?? chapterRaw.chapter_name ?? chapterRaw.chapterName ?? chapterRaw.title,
+        '',
+      ).trim();
+      const orderIndex = asOptionalNumber(
+        chapterRaw.sequence ?? chapterRaw.order_index ?? chapterRaw.orderIndex,
+      );
+
+      const modules: CourseModule[] = moduleRows
+        .filter(
+          (mod) =>
+            asNumber(mod.chapter_id ?? mod.chapterId, Number.NaN) === chapterId,
+        )
+        .map((mod) => toModule(mod, chapterId))
+        .filter((m): m is CourseModule => m != null)
+        .sort((a, b) => a.contentId - b.contentId);
+
+      return {
+        chapterId,
+        title: title.length > 0 ? title : `Chapter ${chapterId}`,
+        orderIndex,
+        modules,
+      };
+    })
+    .filter((c): c is CourseChapter => c != null)
+    .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+
+  const currentModuleId = asNumber(row.current_module_id, Number.NaN);
+
+  return {
+    coursePublishId,
+    chapters,
+    currentModuleId: Number.isFinite(currentModuleId) ? currentModuleId : undefined,
+  };
 }
 
 /**

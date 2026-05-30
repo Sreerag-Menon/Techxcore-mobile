@@ -3,6 +3,7 @@
  *
  * A container card with three visual variants (default, elevated, outlined),
  * configurable padding, and optional press-to-scale animation.
+ * Uses CSS boxShadow (not legacy elevation/shadow props).
  */
 import React, { memo } from 'react';
 import { ViewStyle } from 'react-native';
@@ -59,23 +60,23 @@ const Card = memo(function Card({
   }));
 
   const handlePressIn = () => {
-    if (onPress) scale.value = withSpring(0.97, { damping: 15, stiffness: 300 });
+    if (onPress) scale.value = withSpring(0.97, { damping: 18, stiffness: 350 });
   };
 
   const handlePressOut = () => {
-    if (onPress) scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+    if (onPress) scale.value = withSpring(1, { damping: 18, stiffness: 350 });
   };
 
   const variantStyle = (): ViewStyle => {
     switch (variant) {
       case 'elevated':
         return {
-          backgroundColor: colors.surface,
-          shadowColor: isDark ? '#000' : '#6B7280',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: isDark ? 0.5 : 0.12,
-          shadowRadius: 12,
-          elevation: 6,
+          backgroundColor: colors.surfaceRaised,
+          // CSS boxShadow — no legacy elevation/shadow props
+          // @ts-ignore
+          boxShadow: isDark
+            ? '0 4px 16px rgba(0, 0, 0, 0.4)'
+            : '0 2px 12px rgba(13, 17, 23, 0.08)',
         };
       case 'outlined':
         return {
@@ -99,6 +100,8 @@ const Card = memo(function Card({
         variantStyle(),
         {
           borderRadius: 16,
+          // @ts-ignore
+          borderCurve: 'continuous',
           padding: paddingMap[padding],
           overflow: 'hidden',
         },

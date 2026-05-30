@@ -12,6 +12,11 @@ export interface Course {
   status: 'not_started' | 'in_progress' | 'completed';
   category?: string;
   duration?: string;
+  /** Subject / curriculum id from publishings — required for player APIs */
+  curriculum_id?: number;
+  /** Master course ids for hierarchy v2 (multicourse uses all entries) */
+  course_ids?: number[];
+  is_multicourse?: boolean;
 }
 
 export interface CourseContent {
@@ -107,6 +112,8 @@ export interface CourseChapter {
 export interface CourseHier {
   coursePublishId: number;
   chapters: CourseChapter[];
+  /** From `get_trainee_course_publish_hier_v2` when available */
+  currentModuleId?: number;
 }
 
 export interface CourseDetails {
@@ -126,5 +133,6 @@ export interface CourseState {
   dashboardCourses: Course[];
   currentCourse: CourseDetails | null;
   isLoading: boolean;
+  isLoadingCourseDetails: boolean;
   error: string | null;
 }
