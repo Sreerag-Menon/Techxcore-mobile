@@ -7,12 +7,19 @@ import { useTheme } from '../../theme';
 
 export type VideoPlayerProps = {
   url: string;
+  initialSeekSeconds?: number;
   onProgress?: (seconds: number) => void;
   onEnd?: () => void;
   onError?: (message: string) => void;
 };
 
-export function VideoPlayer({ url, onProgress, onEnd, onError }: VideoPlayerProps) {
+export function VideoPlayer({
+  url,
+  initialSeekSeconds = 0,
+  onProgress,
+  onEnd,
+  onError,
+}: VideoPlayerProps) {
   const { colors } = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -23,6 +30,19 @@ export function VideoPlayer({ url, onProgress, onEnd, onError }: VideoPlayerProp
     p.timeUpdateEventInterval = 1;
     p.keepScreenOnWhilePlaying = true;
   });
+
+  useEffect(() => {
+    if (initialSeekSeconds <= 0) return;
+    const seekSub = player.addListener('statusChange', (payload) => {
+      if (payload.status === 'readyToPlay') {
+        player.currentTime = initialSeekSeconds;
+      }
+    });
+    if (player.status === 'readyToPlay') {
+      player.currentTime = initialSeekSeconds;
+    }
+    return () => seekSub.remove();
+  }, [initialSeekSeconds, player, url]);
 
   useEffect(() => {
     const subStatus = player.addListener('statusChange', (payload) => {

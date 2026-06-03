@@ -6,15 +6,27 @@ import { useTheme } from '../../theme';
 
 export type AudioPlayerProps = {
   url: string;
+  initialSeekSeconds?: number;
   onProgress?: (seconds: number) => void;
   onComplete?: () => void;
 };
 
-export function AudioPlayer({ url, onProgress, onComplete }: AudioPlayerProps) {
+export function AudioPlayer({
+  url,
+  initialSeekSeconds = 0,
+  onProgress,
+  onComplete,
+}: AudioPlayerProps) {
   const { colors } = useTheme();
   const player = useAudioPlayer(url, { updateInterval: 500, downloadFirst: true });
   const status = useAudioPlayerStatus(player);
   const lastReportedSecondsRef = useRef<number>(-1);
+
+  useEffect(() => {
+    if (initialSeekSeconds <= 0) return;
+    player.seekTo(initialSeekSeconds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seek once per module
+  }, [url, initialSeekSeconds]);
 
   useEffect(() => {
     if (!onProgress) return;

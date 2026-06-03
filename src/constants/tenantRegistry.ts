@@ -28,7 +28,7 @@ export const TENANT_REGISTRY: TenantRegistryEntry[] = [
   {
     code: 'LOCAL',
     displayName: 'Local Development',
-    baseUrl: 'http://10.0.2.2:8000',
+    baseUrl: 'https://moneyless-vengeful-alumni.ngrok-free.dev',
     active: true,
   },
   // Example production entry — replace with real institution URLs:

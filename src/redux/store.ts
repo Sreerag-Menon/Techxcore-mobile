@@ -3,6 +3,8 @@ import { configureStore } from '@reduxjs/toolkit';
 import assessmentReducer from './slices/assessmentSlice';
 import authReducer from './slices/authSlice';
 import courseReducer from './slices/courseSlice';
+import dashboardReducer from './slices/dashboardSlice';
+import menuReducer from './slices/menuSlice';
 import notificationReducer from './slices/notificationSlice';
 import parentReducer from './slices/parentSlice';
 import playerReducer from './slices/playerSlice';
@@ -16,6 +18,8 @@ export const store = configureStore({
     auth: authReducer,
     user: userReducer,
     course: courseReducer,
+    dashboard: dashboardReducer,
+    menu: menuReducer,
     assessment: assessmentReducer,
     notification: notificationReducer,
     parent: parentReducer,

@@ -6,6 +6,7 @@ import { post } from '../../api';
 import { ENDPOINTS } from '../../api/endpoints';
 import {
   asNumber,
+  asString,
   buildCourseHierarchy,
   buildTraineePlaybackHierarchy,
   extractArray,
@@ -69,6 +70,34 @@ export type CertificateResponse = {
   certificateUrl: string;
 };
 
+export type DiscourseComment = {
+  id?: number | string;
+  author?: string;
+  message: string;
+  createdAt?: string;
+};
+
+function transformCertificateResponse(response: unknown): CertificateResponse {
+  const row = extractItem<Record<string, unknown>>(response);
+  const url = asString(row?.url ?? row?.certificate_url ?? row?.certificateUrl, '').trim();
+  return { certificateUrl: url };
+}
+
+function transformDiscourseComments(response: unknown): DiscourseComment[] {
+  const rows = extractArray<Record<string, unknown>>(response);
+  return rows.map((row, index) => {
+    const rawId = row.id;
+    const id =
+      typeof rawId === 'number' || typeof rawId === 'string' ? rawId : index;
+    return {
+      id,
+      author: asString(row.username ?? row.studentName ?? row.author, 'Student').trim(),
+      message: asString(row.message ?? row.raw ?? row.cooked, '').trim(),
+      createdAt: asString(row.created_at ?? row.createdAt, '') || undefined,
+    };
+  });
+}
+
 function transformHierarchyResponse(
   response: unknown,
   coursePublishId: number,
@@ -126,6 +155,7 @@ export const playerApi = createApi({
     'Messages',
     'Rating',
     'Certificate',
+    'Discourse',
   ],
   endpoints: (builder) => ({
     getCourseHierarchy: builder.query<
@@ -340,13 +370,55 @@ export const playerApi = createApi({
       invalidatesTags: (_result, _error, arg) => [{ type: 'Rating', id: arg.coursePublishId }],
     }),
 
-    getCertificate: builder.query<CertificateResponse, { coursePublishId: number }>({
-      query: ({ coursePublishId }) => ({
-        url: ENDPOINTS.STUDENT.CERTIFICATE,
-        data: { coursePublishId: String(coursePublishId) },
-      }),
+    getCertificate: builder.query<
+      CertificateResponse,
+      {
+        coursePublishId: number;
+        certificateConfigId?: number;
+        type?: string;
+      }
+    >({
+      query: ({ coursePublishId, certificateConfigId, type }) => {
+        if (certificateConfigId != null && certificateConfigId > 0) {
+          return {
+            url: ENDPOINTS.STUDENT.CERTIFICATE_GENERATE,
+            data: {
+              id: String(coursePublishId),
+              certificate_config_id: certificateConfigId,
+              type: type ?? 'Course',
+            },
+          };
+        }
+        return {
+          url: ENDPOINTS.STUDENT.CERTIFICATE,
+          data: { coursePublishId: String(coursePublishId) },
+        };
+      },
+      transformResponse: (response) => transformCertificateResponse(response),
       providesTags: (_result, _error, arg) => [
         { type: 'Certificate', id: arg.coursePublishId },
+      ],
+    }),
+
+    getDiscourseComments: builder.query<DiscourseComment[], { topicId: number | string }>({
+      query: ({ topicId }) => ({
+        url: ENDPOINTS.DISCOURSE.COMMENTS,
+        data: { topicId },
+      }),
+      transformResponse: (response) => transformDiscourseComments(response),
+      providesTags: (_result, _error, arg) => [{ type: 'Discourse', id: String(arg.topicId) }],
+    }),
+
+    postDiscourseComment: builder.mutation<
+      unknown,
+      { topicId: number | string; message: string; studentName: string }
+    >({
+      query: ({ topicId, message, studentName }) => ({
+        url: ENDPOINTS.DISCOURSE.POST_COMMENT,
+        data: { topicId, message, studentName },
+      }),
+      invalidatesTags: (_result, _error, arg) => [
+        { type: 'Discourse', id: String(arg.topicId) },
       ],
     }),
   }),
@@ -366,4 +438,6 @@ export const {
   useGetCourseRatingQuery,
   useSubmitCourseRatingMutation,
   useGetCertificateQuery,
+  useGetDiscourseCommentsQuery,
+  usePostDiscourseCommentMutation,
 } = playerApi;

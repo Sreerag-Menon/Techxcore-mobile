@@ -2,33 +2,49 @@ import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import {
+  buildVimeoProgressHtml,
+  extractVimeoVideoId,
+  parseEmbedProgressMessage,
+} from '../../utils/embedVideoProgress';
+
 export type VimeoModulePlayerProps = {
   url: string;
+  initialSeekSeconds?: number;
+  onProgress?: (seconds: number) => void;
 };
 
-function toVimeoEmbedUrl(url: string): string {
-  const lower = url.toLowerCase();
-  if (lower.includes('player.vimeo.com/video/')) return url;
+export function VimeoModulePlayer({
+  url,
+  initialSeekSeconds = 0,
+  onProgress,
+}: VimeoModulePlayerProps) {
+  const videoId = useMemo(() => extractVimeoVideoId(url), [url]);
+  const html = useMemo(() => (videoId ? buildVimeoProgressHtml(videoId) : null), [videoId]);
 
-  const idMatch = url.match(/vimeo\.com\/(?:video\/)?([0-9]+)/i);
-  if (idMatch?.[1]) {
-    return `https://player.vimeo.com/video/${idMatch[1]}?playsinline=1`;
+  if (!html) {
+    return null;
   }
-  return url;
-}
-
-export function VimeoModulePlayer({ url }: VimeoModulePlayerProps) {
-  const embedUrl = useMemo(() => toVimeoEmbedUrl(url), [url]);
 
   return (
     <View style={styles.container}>
       <WebView
-        source={{ uri: embedUrl }}
+        source={{ html }}
+        originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
         style={styles.webview}
+        injectedJavaScript={
+          initialSeekSeconds > 0
+            ? `setTimeout(function(){ try { if (typeof player !== 'undefined') player.setCurrentTime(${initialSeekSeconds}); } catch(e) {} }, 1500); true;`
+            : undefined
+        }
+        onMessage={(event) => {
+          const seconds = parseEmbedProgressMessage(event.nativeEvent.data);
+          if (seconds != null) onProgress?.(seconds);
+        }}
       />
     </View>
   );
@@ -43,4 +59,3 @@ const styles = StyleSheet.create({
   },
   webview: { flex: 1 },
 });
-

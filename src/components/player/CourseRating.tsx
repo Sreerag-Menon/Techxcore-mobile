@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { BottomSheetBackdrop, BottomSheetModal } from '@gorhom/bottom-sheet';
-import { createMMKV } from 'react-native-mmkv';
 
 import { useTheme } from '../../theme';
+import { asyncStorage } from '../../utils/storage';
 import { useSubmitCourseRatingMutation } from '../../redux/api/playerApi';
-
-const storage = createMMKV();
 
 export type CourseRatingProps = {
   coursePublishId: number;
@@ -25,9 +23,13 @@ export function CourseRating({ coursePublishId, shouldPrompt }: CourseRatingProp
   useEffect(() => {
     if (!shouldPrompt) return;
     const key = `rating:prompted:${coursePublishId}`;
-    if (storage.getBoolean(key)) return;
-    storage.set(key, true);
-    sheetRef.current?.present();
+
+    void (async () => {
+      const prompted = await asyncStorage.getItem<boolean>(key);
+      if (prompted) return;
+      await asyncStorage.setItem(key, true);
+      sheetRef.current?.present();
+    })();
   }, [coursePublishId, shouldPrompt]);
 
   return (
@@ -133,4 +135,3 @@ export function CourseRating({ coursePublishId, shouldPrompt }: CourseRatingProp
     </>
   );
 }
-

@@ -40,7 +40,8 @@
           "supportsBackgroundPlayback": false,
           "supportsPictureInPicture": true
         }
-      ]
+      ],
+      "expo-asset"
     ]
   }
 }

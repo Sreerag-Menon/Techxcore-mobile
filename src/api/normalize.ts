@@ -402,10 +402,22 @@ export function buildTraineePlaybackHierarchy(
 
   const currentModuleId = asNumber(row.current_module_id, Number.NaN);
 
+  const courseRows = extractArray<UnknownRecord>(row.courses);
+  const courseMeta = courseRows[0] ?? row;
+  const topicRaw = courseMeta.topic_id ?? courseMeta.topicId ?? row.topic_id ?? row.topicId;
+  const topicId =
+    topicRaw != null && String(topicRaw).trim() !== '' ? (topicRaw as number | string) : undefined;
+  const hierarchyCourseId = asNumber(
+    courseMeta.course_id ?? courseMeta.courseId ?? row.course_id,
+    Number.NaN,
+  );
+
   return {
     coursePublishId,
     chapters,
     currentModuleId: Number.isFinite(currentModuleId) ? currentModuleId : undefined,
+    topicId,
+    courseId: Number.isFinite(hierarchyCourseId) ? hierarchyCourseId : undefined,
   };
 }
 

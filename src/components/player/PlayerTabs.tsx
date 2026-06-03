@@ -4,6 +4,7 @@ import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { Button, Card, EmptyState } from '../index';
 import { useTheme } from '../../theme';
 import type { CourseDetails } from '../../types/course.types';
+import { DiscoursePanel } from './DiscoursePanel';
 import {
   useGetModuleNotesQuery,
   useGetTrainerMessagesQuery,
@@ -19,6 +20,8 @@ export type PlayerTabsProps = {
   curriculumId?: number;
   coursePublishId: number;
   contentId?: number;
+  topicId?: number | string;
+  studentName?: string;
 };
 
 export function PlayerTabs({
@@ -27,6 +30,8 @@ export function PlayerTabs({
   curriculumId,
   coursePublishId,
   contentId,
+  topicId,
+  studentName,
 }: PlayerTabsProps) {
   const { colors } = useTheme();
   const [tab, setTab] = useState<TabKey>('details');
@@ -204,10 +209,7 @@ export function PlayerTabs({
         ) : null}
 
         {tab === 'discourse' ? (
-          <EmptyState
-            title="Discourse"
-            message="Discourse integration will be enabled when topic_id is available."
-          />
+          <DiscoursePanel topicId={topicId} studentName={studentName} />
         ) : null}
       </View>
     </Card>

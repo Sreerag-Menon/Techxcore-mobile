@@ -1,27 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { router } from 'expo-router';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
 import {
   Badge,
   Button,
-  Card,
   EmptyState,
   ErrorState,
   SkeletonCard,
 } from '../../../src/components';
+import AssessmentListItem from '../../../src/components/assessments/AssessmentListItem';
 import { ScreenLayout, TabLayout } from '../../../src/layouts';
 import { useAppDispatch, useAppSelector } from '../../../src/redux';
 import { fetchAssessments } from '../../../src/redux/slices/assessmentSlice';
 import { useTheme } from '../../../src/theme';
 import type { AssessmentStatus } from '../../../src/types/assessment.types';
-import { formatDate, formatDuration } from '../../../src/utils';
+import { formatDuration } from '../../../src/utils';
+import { formatAssessmentStatus } from '../../../src/utils/assessments';
 
 type AssessmentFilter = 'all' | 'pending' | 'in_progress' | 'completed';
-
-function formatAssessmentStatus(status?: AssessmentStatus): string {
-  return status ? status.replace(/_/g, ' ') : 'scheduled';
-}
 
 function getAssessmentStatusVariant(
   status?: AssessmentStatus,
@@ -64,14 +61,6 @@ function getAssessmentMeta(
   }
 
   return parts;
-}
-
-function getDueDateLabel(dueDate?: string): string | null {
-  if (!dueDate) {
-    return null;
-  }
-
-  return formatDate(dueDate) || dueDate;
 }
 
 export default function AssessmentsScreen() {
@@ -148,110 +137,39 @@ export default function AssessmentsScreen() {
             message="New assessments will appear here once they are assigned to you."
           />
         ) : (
-          filteredAssessments.map((assessment, index) => {
-            const canOpenAssessment =
-              typeof assessment.test_id === 'number' &&
-              Number.isFinite(assessment.test_id);
-            const meta = getAssessmentMeta(
-              assessment.total_questions,
-              assessment.total_marks,
-              assessment.duration_minutes,
-            );
-            const dueDateLabel = getDueDateLabel(assessment.due_date);
+          <View style={{ gap: 12 }}>
+            {filteredAssessments.map((assessment, index) => {
+              const canOpenAssessment =
+                typeof assessment.test_id === 'number' &&
+                Number.isFinite(assessment.test_id);
 
-            return (
-              <Card
-                key={assessment.test_id ?? `assessment-${index}`}
-                variant="elevated"
-                padding="lg"
-                onPress={
-                  canOpenAssessment
-                    ? () =>
-                        router.push({
-                          pathname: '/(student)/assessment/[id]',
-                          params: { id: String(assessment.test_id) },
-                        })
-                    : undefined
-                }
-              >
-                <View style={{ gap: 12 }}>
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'flex-start',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                    }}
-                  >
-                    <View style={{ flex: 1, gap: 6 }}>
-                      <Text
-                        style={{
-                          color: colors.text,
-                          fontSize: 17,
-                          fontWeight: '700',
-                        }}
-                      >
-                        {assessment.test_name || 'Assessment'}
-                      </Text>
-                      {assessment.test_description ? (
-                        <Text
-                          style={{
-                            color: colors.textSecondary,
-                            fontSize: 13,
-                            lineHeight: 19,
-                          }}
-                          numberOfLines={2}
-                        >
-                          {assessment.test_description}
-                        </Text>
-                      ) : null}
-                    </View>
-                    <Badge
-                      label={formatAssessmentStatus(assessment.status)}
-                      variant={getAssessmentStatusVariant(assessment.status)}
-                    />
-                  </View>
+              const openAttempt = canOpenAssessment
+                ? () =>
+                    router.push({
+                      pathname: '/(student)/assessment/[id]',
+                      params: { id: String(assessment.test_id) },
+                    })
+                : undefined;
 
-                  {meta.length ? (
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        flexWrap: 'wrap',
-                        gap: 8,
-                      }}
-                    >
-                      {meta.map((item) => (
-                        <Text
-                          key={`${assessment.test_id ?? index}-${item}`}
-                          style={{ color: colors.textSecondary, fontSize: 12 }}
-                        >
-                          {item}
-                        </Text>
-                      ))}
-                    </View>
-                  ) : null}
+              const openResults = canOpenAssessment
+                ? () =>
+                    router.push({
+                      pathname: '/(student)/assessment/[id]',
+                      params: { id: String(assessment.test_id), mode: 'results' },
+                    })
+                : undefined;
 
-                  {dueDateLabel ? (
-                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                      Due {dueDateLabel}
-                    </Text>
-                  ) : null}
-
-                  {typeof assessment.percentage === 'number' ? (
-                    <Text
-                      style={{
-                        color: colors.primary,
-                        fontSize: 13,
-                        fontWeight: '600',
-                      }}
-                    >
-                      Latest score: {Math.round(assessment.percentage)}%
-                    </Text>
-                  ) : null}
-                </View>
-              </Card>
-            );
-          })
+              return (
+                <AssessmentListItem
+                  key={assessment.test_id ?? `assessment-${index}`}
+                  assessment={assessment}
+                  variant="list"
+                  onStartOrContinue={openAttempt}
+                  onOpenResults={openResults}
+                />
+              );
+            })}
+          </View>
         )}
       </TabLayout>
     </ScreenLayout>

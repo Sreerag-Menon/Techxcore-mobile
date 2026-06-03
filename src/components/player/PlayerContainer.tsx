@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus, Text, View } from 'react-native';
-import { createMMKV } from 'react-native-mmkv';
 
 import type { CourseModule } from '../../types/course.types';
 import { useTheme } from '../../theme';
+import { asyncStorage } from '../../utils/storage';
 import {
   useRecordPointsMutation,
   useSaveModuleProgressMutation,
@@ -34,9 +34,9 @@ export function PlayerContainer({
   const { colors } = useTheme();
   const [saveProgress] = useSaveModuleProgressMutation();
   const [recordPoints] = useRecordPointsMutation();
-  const latestSecondsRef = useRef<number>(0);
+  const initialSeekSeconds = module.summary?.lastPositionSeconds ?? 0;
+  const latestSecondsRef = useRef<number>(Math.max(0, initialSeekSeconds));
   const isAppActiveRef = useRef(true);
-  const storageRef = useRef(createMMKV());
 
   const progressArgs = useMemo(
     () => ({
@@ -48,18 +48,19 @@ export function PlayerContainer({
   );
 
   useEffect(() => {
-    latestSecondsRef.current = 0;
+    latestSecondsRef.current = Math.max(0, initialSeekSeconds);
     const storageKey = `progress:last:${coursePublishId}:${module.contentId}`;
 
-    // Best-effort: if we have unsent progress, try sending it first.
-    const persisted = storageRef.current.getNumber(storageKey);
-    if (typeof persisted === 'number' && Number.isFinite(persisted) && persisted > 0) {
-      void saveProgress({
-        ...progressArgs,
-        seconds: persisted,
-        action: 'progress',
-      }).catch(() => {});
-    }
+    void (async () => {
+      const persisted = await asyncStorage.getItem<number>(storageKey);
+      if (typeof persisted === 'number' && Number.isFinite(persisted) && persisted > 0) {
+        void saveProgress({
+          ...progressArgs,
+          seconds: persisted,
+          action: 'progress',
+        }).catch(() => {});
+      }
+    })();
 
     const onAppStateChange = (next: AppStateStatus) => {
       isAppActiveRef.current = next === 'active';
@@ -73,24 +74,29 @@ export function PlayerContainer({
         seconds: Math.max(0, latestSecondsRef.current),
         action: 'progress',
       }).catch(() => {
-        // Queue a minimal offline value so we can flush later.
-        storageRef.current.set(storageKey, Math.max(0, latestSecondsRef.current));
+        void asyncStorage.setItem(storageKey, Math.max(0, latestSecondsRef.current));
       });
     }, studyMapTriggerIntervalMs);
 
     return () => {
       clearInterval(id);
       appSub.remove();
-      // Flush final progress on unmount (best-effort).
       void saveProgress({
         ...progressArgs,
         seconds: Math.max(0, latestSecondsRef.current),
         action: 'summary',
       }).catch(() => {
-        storageRef.current.set(storageKey, Math.max(0, latestSecondsRef.current));
+        void asyncStorage.setItem(storageKey, Math.max(0, latestSecondsRef.current));
       });
     };
-  }, [coursePublishId, module.contentId, progressArgs, saveProgress, studyMapTriggerIntervalMs]);
+  }, [
+    coursePublishId,
+    initialSeekSeconds,
+    module.contentId,
+    progressArgs,
+    saveProgress,
+    studyMapTriggerIntervalMs,
+  ]);
 
   const handleComplete = () => {
     void recordPoints({
@@ -104,14 +110,31 @@ export function PlayerContainer({
 
   if (module.type === 'video') {
     if (module.provider === 'youtube') {
-      return <YoutubeModulePlayer url={module.url} />;
+      return (
+        <YoutubeModulePlayer
+          url={module.url}
+          initialSeekSeconds={initialSeekSeconds}
+          onProgress={(seconds) => {
+            latestSecondsRef.current = seconds;
+          }}
+        />
+      );
     }
     if (module.provider === 'vimeo') {
-      return <VimeoModulePlayer url={module.url} />;
+      return (
+        <VimeoModulePlayer
+          url={module.url}
+          initialSeekSeconds={initialSeekSeconds}
+          onProgress={(seconds) => {
+            latestSecondsRef.current = seconds;
+          }}
+        />
+      );
     }
     return (
       <VideoPlayer
         url={module.url}
+        initialSeekSeconds={initialSeekSeconds}
         onProgress={(seconds) => {
           latestSecondsRef.current = seconds;
         }}
@@ -128,6 +151,7 @@ export function PlayerContainer({
     return (
       <AudioPlayer
         url={module.url}
+        initialSeekSeconds={initialSeekSeconds}
         onProgress={(seconds) => {
           latestSecondsRef.current = seconds;
         }}
@@ -184,4 +208,3 @@ export function PlayerContainer({
     </View>
   );
 }
-

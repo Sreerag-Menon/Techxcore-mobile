@@ -47,6 +47,13 @@ export default function CourseDetailScreen() {
   const activeContentId = useAppSelector((state) => state.player.activeContentId);
   const memberId = useAppSelector((state) => state.user.profile?.member_id);
   const authMemberId = useAppSelector((state) => state.auth.user?.member_id);
+  const authUser = useAppSelector((state) => state.auth.user);
+  const studentName = useMemo(() => {
+    const first = authUser?.first_name ?? '';
+    const last = authUser?.last_name ?? '';
+    const full = `${first} ${last}`.trim();
+    return full.length > 0 ? full : undefined;
+  }, [authUser]);
 
   const playerContext = useMemo(
     () =>
@@ -262,6 +269,8 @@ export default function CourseDetailScreen() {
           coursePublishId={playerContext.coursePublishId}
           contentId={activeModule?.contentId}
           curriculumId={playerContext.curriculumId}
+          topicId={hierarchy?.topicId}
+          studentName={studentName}
         />
 
         {hierarchy ? (
