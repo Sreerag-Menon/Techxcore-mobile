@@ -134,3 +134,57 @@ Motion in AAI LMS Mobile is physical, spring-driven, and deliberate. It serves t
 2. **Transition Swaps**: Transitioning between cards in the auth stack flows from right-to-left. Exiting cards fade out upward (`FadeOutUp.duration(200)`), while entering content springs up into place, making the interface feel unified.
 3. **Micro-Feedback**: Forms and inputs that fail validation execute an animated horizontal shake (`withSequence` on a shared offset value).
 4. **Reduced Motion**: All physics and keyframe transitions are automatically audited against the operating system's accessibility configurations using `useReducedMotion()`. If reduced motion is active, transitions instantly snap, ensuring compliance and comfort.
+
+## 7. Liquid Glass System (`LiquidGlassView`)
+
+Floating surfaces (tab bar, bottom sheets, and future overlays) use a single primitive: **`LiquidGlassView`** in `src/components/ui/LiquidGlassView.tsx`. It picks the best effect at runtime without changing theme tokens.
+
+### Tier fallback
+
+| Tier | When | Implementation |
+|------|------|----------------|
+| **1 — Native** | iOS 26+, API available | `expo-glass-effect` `GlassView` (UIVisualEffectView) |
+| **2 — Frosted blur** | iOS / Android | `expo-blur` `BlurView` with system chrome material tint |
+| **3 — Faux glass** | Web, unsupported OS, or blur disabled | `authGlassSurface` rgba + border (same as `GlassCard`) |
+
+Check at runtime: `resolveGlassTier()` or `useGlassTier()`. Guard native glass with `isGlassEffectAPIAvailable()` before relying on tier 1.
+
+### Usage
+
+```tsx
+import { LiquidGlassView, TabBarGlassBackground } from '@/components/ui';
+
+// Tab bar (Expo Router Tabs)
+tabBarBackground: () => <TabBarGlassBackground />,
+tabBarStyle: { backgroundColor: 'transparent', /* keep existing height, radius, tint */ },
+
+// Custom panel
+<LiquidGlassView borderRadius={16} intensity={80}>
+  {children}
+</LiquidGlassView>
+
+// Bottom sheet modal (@gorhom/bottom-sheet)
+import { BottomSheetGlassBackdrop, BottomSheetGlassBackground } from '@/components/ui';
+
+<BottomSheetModal
+  backdropComponent={(props) => <BottomSheetGlassBackdrop {...props} />}
+  backgroundComponent={BottomSheetGlassBackground}
+  backgroundStyle={{ backgroundColor: 'transparent', borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+/>
+```
+
+### What stays unchanged
+
+- **Auth `GlassCard`** — keeps its existing faux glass (gradient login screens).
+- **Color tokens** — no changes to `colors.ts`; optional teal tint on tier 1 uses `colors.primary` at low opacity only.
+- **Typography / spacing** — unchanged.
+
+### Expo Go
+
+`expo-blur` and `expo-glass-effect` are included in Expo Go for SDK 54. If liquid glass APIs are unavailable on a device, tier 2 or 3 applies automatically with no crash.
+
+---
+
+## Expo Go compatibility
+
+For temporary Expo Go testing (no dev client), see [docs/EXPO_GO_NATIVE_MODULES_REVERT.md](docs/EXPO_GO_NATIVE_MODULES_REVERT.md) for removed native modules and how to restore them.

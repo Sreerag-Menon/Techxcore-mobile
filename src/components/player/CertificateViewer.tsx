@@ -3,9 +3,8 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { BottomSheetBackdrop, BottomSheetModal } from '@gorhom/bottom-sheet';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { PdfView } from '@kishannareshpal/expo-pdf';
-
 import { useTheme } from '../../theme';
+import { PdfWebView } from './PdfWebView';
 import { useGetCertificateQuery } from '../../redux/api/playerApi';
 
 export type CertificateViewerProps = {
@@ -144,7 +143,7 @@ export function CertificateViewer({ coursePublishId, enabled }: CertificateViewe
             </View>
           ) : localUri ? (
             <View style={{ flex: 1, borderRadius: 16, overflow: 'hidden' }}>
-              <PdfView uri={localUri} style={{ flex: 1 }} fitMode="width" />
+              <PdfWebView uri={localUri} style={{ flex: 1 }} />
             </View>
           ) : (
             <Text style={{ color: colors.textSecondary }}>

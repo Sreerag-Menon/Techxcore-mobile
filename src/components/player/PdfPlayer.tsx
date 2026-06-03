@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import * as FileSystem from 'expo-file-system';
-import { PdfView } from '@kishannareshpal/expo-pdf';
 
 import { useTheme } from '../../theme';
+import { PdfWebView } from './PdfWebView';
 
 export type PdfPlayerProps = {
   url: string;
@@ -15,7 +15,7 @@ function safeFileName(input: string) {
   return input.replace(/[^a-z0-9_-]+/gi, '_').slice(0, 80);
 }
 
-export function PdfPlayer({ url, onComplete, onError }: PdfPlayerProps) {
+export function PdfPlayer({ url, onError }: PdfPlayerProps) {
   const { colors } = useTheme();
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -85,18 +85,7 @@ export function PdfPlayer({ url, onComplete, onError }: PdfPlayerProps) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <PdfView
-        uri={localUri}
-        style={styles.viewer}
-        fitMode="width"
-        pagingEnabled={false}
-        onError={(payload) => onError?.(payload.message)}
-        onPageChanged={(payload) => {
-          if (payload.pageCount > 0 && payload.pageIndex === payload.pageCount - 1) {
-            onComplete?.();
-          }
-        }}
-      />
+      <PdfWebView uri={localUri} style={styles.viewer} />
     </View>
   );
 }
@@ -119,4 +108,3 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
-

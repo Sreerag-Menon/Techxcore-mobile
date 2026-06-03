@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { router } from 'expo-router';
 import { Text, View } from 'react-native';
 
 import {
@@ -15,7 +14,12 @@ import {
 import { ScreenLayout, TabLayout } from '../../../src/layouts';
 import { useAppDispatch, useAppSelector } from '../../../src/redux';
 import { fetchCourses } from '../../../src/redux/slices/courseSlice';
+import {
+  navigateToCourse,
+  navigateToCourseDetails,
+} from '../../../src/services/courseNavigation';
 import { useTheme } from '../../../src/theme';
+import type { Course } from '../../../src/types/course.types';
 
 type CourseFilter = 'all' | 'in_progress' | 'completed';
 
@@ -107,23 +111,7 @@ export default function CoursesScreen() {
           />
         ) : (
           filteredCourses.map((course) => (
-            <Card
-              key={course.course_publish_id || course.course_id}
-              variant="elevated"
-              padding="lg"
-              onPress={() =>
-                router.push({
-                  pathname: '/(student)/course/[id]',
-                  params: {
-                    id: String(course.course_publish_id || course.course_id),
-                    ...(course.curriculum_id
-                      ? { curriculumId: String(course.curriculum_id) }
-                      : {}),
-                    courseId: String(course.course_id),
-                  },
-                })
-              }
-            >
+            <Card key={course.course_publish_id || course.course_id} variant="elevated" padding="lg">
               <View style={{ gap: 12 }}>
                 <View
                   style={{
@@ -170,6 +158,12 @@ export default function CoursesScreen() {
 
                 <ProgressBar progress={course.progress_percentage || 0} showLabel />
 
+                {course.pending_test === 1 ? (
+                  <Text style={{ color: colors.warning ?? colors.primary, fontSize: 12 }}>
+                    Pending assessment — complete before opening
+                  </Text>
+                ) : null}
+
                 <View
                   style={{
                     flexDirection: 'row',
@@ -187,11 +181,27 @@ export default function CoursesScreen() {
                     </Text>
                   ) : null}
                 </View>
+
+                <CourseCardActions course={course} />
               </View>
             </Card>
           ))
         )}
       </TabLayout>
     </ScreenLayout>
+  );
+}
+
+function CourseCardActions({ course }: { course: Course }) {
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+      <Button
+        title="View details"
+        size="sm"
+        variant="outline"
+        onPress={() => navigateToCourseDetails(course)}
+      />
+      <Button title="Open" size="sm" onPress={() => navigateToCourse(course)} />
+    </View>
   );
 }

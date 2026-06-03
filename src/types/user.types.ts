@@ -14,6 +14,8 @@ export interface UserProfile {
   department?: string;
   class_name?: string;
   standard?: string;
+  credits?: number;
+  level?: string;
 }
 
 export interface UserState {

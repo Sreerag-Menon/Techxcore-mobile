@@ -2,41 +2,52 @@ import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
+import {
+  buildYoutubeProgressHtml,
+  extractYoutubeVideoId,
+  parseEmbedProgressMessage,
+} from '../../utils/embedVideoProgress';
+
 export type YoutubeModulePlayerProps = {
   url: string;
+  initialSeekSeconds?: number;
+  onProgress?: (seconds: number) => void;
 };
 
-function toYoutubeEmbedUrl(url: string): string {
-  const lower = url.toLowerCase();
-  if (lower.includes('youtube.com/embed/')) return url;
+export function YoutubeModulePlayer({
+  url,
+  initialSeekSeconds = 0,
+  onProgress,
+}: YoutubeModulePlayerProps) {
+  const videoId = useMemo(() => extractYoutubeVideoId(url), [url]);
+  const html = useMemo(
+    () => (videoId ? buildYoutubeProgressHtml(videoId) : null),
+    [videoId],
+  );
 
-  // youtu.be/<id>
-  const youtuBeMatch = url.match(/youtu\.be\/([^?&#/]+)/i);
-  if (youtuBeMatch?.[1]) {
-    return `https://www.youtube.com/embed/${youtuBeMatch[1]}?playsinline=1`;
+  if (!html) {
+    return null;
   }
-
-  // youtube.com/watch?v=<id>
-  const watchMatch = url.match(/[?&]v=([^?&#/]+)/i);
-  if (watchMatch?.[1]) {
-    return `https://www.youtube.com/embed/${watchMatch[1]}?playsinline=1`;
-  }
-
-  return url;
-}
-
-export function YoutubeModulePlayer({ url }: YoutubeModulePlayerProps) {
-  const embedUrl = useMemo(() => toYoutubeEmbedUrl(url), [url]);
 
   return (
     <View style={styles.container}>
       <WebView
-        source={{ uri: embedUrl }}
+        source={{ html }}
+        originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
         style={styles.webview}
+        injectedJavaScript={
+          initialSeekSeconds > 0
+            ? `setTimeout(function(){ try { if (typeof player !== 'undefined' && player.seekTo) player.seekTo(${initialSeekSeconds}, true); } catch(e) {} }, 1500); true;`
+            : undefined
+        }
+        onMessage={(event) => {
+          const seconds = parseEmbedProgressMessage(event.nativeEvent.data);
+          if (seconds != null) onProgress?.(seconds);
+        }}
       />
     </View>
   );
@@ -51,4 +62,3 @@ const styles = StyleSheet.create({
   },
   webview: { flex: 1 },
 });
-

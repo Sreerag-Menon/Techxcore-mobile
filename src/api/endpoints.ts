@@ -16,6 +16,15 @@ export const ENDPOINTS = {
     GOOGLE_LOGIN: '/member_login_google',
     MICROSOFT_LOGIN: '/member_login_microsoft',
   },
+  DASHBOARD: {
+    HOME_SUMMARY: '/get_trainee_home_summary',
+    WEEKLY_ACTIVITY: '/get_trainee_studytime',
+    MENTOR_LIST: '/get_student_trainer_list',
+    COURSE_PROGRESS: '/get_trainee_course_progress_dtl',
+    ASSESSMENT_PROGRESS: '/get_trainee_assessment_dtl',
+    INTEREST_COURSES: '/get_memberinterest_courses',
+    JOB_PROFILE_COURSES: '/get_jobprofile_courses',
+  },
   STUDENT: {
     DASHBOARD_COURSES: '/get_dashboard_trainee_courses',
     COURSES: '/get_trainee_courses',
@@ -34,8 +43,16 @@ export const ENDPOINTS = {
     CERTIFICATE: '/get_trainee_certificate',
     ANALYTICS_PLAYER: '/update_analytics',
     COURSE_PUBLISHINGS: '/get_trainee_course_publishings',
+    PREV_COURSE_PUBLISHINGS: '/get_trainee_prevacd_course_publishings',
+    COURSE_SUBSCRIBE: '/insert_trainee_course_subscribe',
+    STUDENT_COURSE_CREDIT_DETAILS: '/get_student_course_credit_details',
+    CERTIFICATE_GENERATE: '/get_certificate',
     OPEN_COURSES: '/get_trainee_open_courses',
     TRENDING_COURSES: '/get_trainee_course_trendings',
+  },
+  DISCOURSE: {
+    COMMENTS: '/api/comments',
+    POST_COMMENT: '/api/postComment',
   },
   ASSESSMENT: {
     LIST: '/get_trainee_assessments',

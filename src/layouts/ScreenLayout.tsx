@@ -6,7 +6,10 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  type Edge,
+} from 'react-native-safe-area-context';
 
 import { useTheme } from '@/theme';
 import { useResponsive } from '@/hooks';
@@ -20,6 +23,8 @@ interface ScreenLayoutProps extends PropsWithChildren {
   contentContainerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
   maxContentWidth?: number;
+  /** Safe area edges to respect. Use `['left','right']` to let content extend under the status bar. */
+  safeAreaEdges?: Edge[];
 }
 
 export default function ScreenLayout({
@@ -32,9 +37,11 @@ export default function ScreenLayout({
   contentContainerStyle,
   style,
   maxContentWidth,
+  safeAreaEdges = ['top', 'left', 'right'],
 }: ScreenLayoutProps) {
   const { colors } = useTheme();
   const { horizontalPadding } = useResponsive();
+  const omitTopSafeArea = !safeAreaEdges.includes('top');
 
   const refreshControl = onRefresh ? (
     <RefreshControl
@@ -51,7 +58,7 @@ export default function ScreenLayout({
       contentContainerStyle={[
         {
           paddingHorizontal: horizontalPadding,
-          paddingTop: 16,
+          paddingTop: omitTopSafeArea ? 0 : 16,
           paddingBottom: 32,
         },
         contentContainerStyle,
@@ -79,7 +86,7 @@ export default function ScreenLayout({
         {
           flex: 1,
           paddingHorizontal: horizontalPadding,
-          paddingTop: 16,
+          paddingTop: omitTopSafeArea ? 0 : 16,
           paddingBottom: 24,
         },
         contentContainerStyle,
@@ -102,7 +109,7 @@ export default function ScreenLayout({
 
   return (
     <SafeAreaView
-      edges={['top', 'left', 'right']}
+      edges={safeAreaEdges}
       style={[
         {
           flex: 1,

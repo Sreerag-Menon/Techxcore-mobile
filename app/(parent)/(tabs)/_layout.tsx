@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 
+import { TabBarGlassBackground } from '@/components/ui';
 import { useAppSelector } from '../../../src/redux';
 import { useTheme } from '../../../src/theme';
 
@@ -14,8 +15,9 @@ export default function ParentTabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textSecondary,
+        tabBarBackground: () => <TabBarGlassBackground />,
         tabBarStyle: {
-          backgroundColor: colors.surface,
+          backgroundColor: 'transparent',
           borderTopWidth: 0,
           elevation: 12,
           shadowColor: '#000',

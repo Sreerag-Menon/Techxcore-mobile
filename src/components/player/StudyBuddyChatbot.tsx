@@ -1,12 +1,10 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import { BottomSheetBackdrop, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { fetch as expoFetch } from 'expo/fetch';
 
 import { useTheme } from '../../theme';
-import { createMMKV } from 'react-native-mmkv';
-
-const storage = createMMKV();
+import { asyncStorage } from '../../utils/storage';
 
 type ChatMessage = {
   id: string;
@@ -27,20 +25,27 @@ export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBud
   const abortRef = useRef<AbortController | null>(null);
 
   const [draft, setDraft] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    const raw = storage.getString(storageKey);
-    if (!raw) return [];
-    try {
-      return JSON.parse(raw) as ChatMessage[];
-    } catch {
-      return [];
-    }
-  });
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void (async () => {
+      const stored = await asyncStorage.getItem<ChatMessage[]>(storageKey);
+      if (mounted && stored?.length) {
+        setMessages(stored);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [storageKey]);
 
   const persist = (next: ChatMessage[]) => {
     setMessages(next);
-    storage.set(storageKey, JSON.stringify(next));
+    void asyncStorage.setItem(storageKey, next);
   };
 
   const send = async () => {
@@ -54,7 +59,6 @@ export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBud
     persist(next);
 
     if (!endpointUrl) {
-      // Fallback: local echo (keeps the UI functional until backend wiring is finalized).
       const echoed = next.map((m) =>
         m.id === assistantMsg.id ? { ...m, text: `I heard: ${text}` } : m,
       );
@@ -88,9 +92,7 @@ export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBud
         const { done, value } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
-        persist(
-          next.map((m) => (m.id === assistantMsg.id ? { ...m, text: acc } : m)),
-        );
+        persist(next.map((m) => (m.id === assistantMsg.id ? { ...m, text: acc } : m)));
       }
     } catch (e) {
       persist(
@@ -209,4 +211,3 @@ export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBud
     </>
   );
 }
-

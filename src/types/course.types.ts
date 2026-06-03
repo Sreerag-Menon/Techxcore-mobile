@@ -1,5 +1,12 @@
 /** Course and content types */
 
+export type CourseVariant = {
+  course_id: number;
+  course_name: string;
+  curriculum_id?: number;
+  confirm?: number;
+};
+
 export interface Course {
   course_id: number;
   course_publish_id: number;
@@ -17,7 +24,27 @@ export interface Course {
   /** Master course ids for hierarchy v2 (multicourse uses all entries) */
   course_ids?: number[];
   is_multicourse?: boolean;
+  /** Variant rows when is_multicourse */
+  course_list?: CourseVariant[];
+  last_active_course?: string | number;
+  pending_test?: number;
+  average_rating?: number;
+  number_of_users?: number;
+  certificate_config_id?: number;
+  certificate_assigned_type?: string;
+  has_assessment_certificate?: number;
+  topic_id?: number | string;
+  credits?: number;
+  end_date?: string;
 }
+
+export type StudentCourseCreditDetails = {
+  progress_percentage: number;
+  course_credit: number;
+  watch_time?: string;
+  activity?: string;
+  status?: string;
+};
 
 export interface CourseContent {
   content_id: number;
@@ -114,6 +141,8 @@ export interface CourseHier {
   chapters: CourseChapter[];
   /** From `get_trainee_course_publish_hier_v2` when available */
   currentModuleId?: number;
+  topicId?: number | string;
+  courseId?: number;
 }
 
 export interface CourseDetails {
@@ -130,8 +159,16 @@ export interface CourseDetails {
 
 export interface CourseState {
   courses: Course[];
+  oldCourses: Course[];
   dashboardCourses: Course[];
+  openCourses: Course[];
+  isLoadingOpenCourses: boolean;
+  openCoursesError: string | null;
+  isLoadingOldCourses: boolean;
+  oldCoursesError: string | null;
   currentCourse: CourseDetails | null;
+  creditDetails: StudentCourseCreditDetails | null;
+  isLoadingCreditDetails: boolean;
   isLoading: boolean;
   isLoadingCourseDetails: boolean;
   error: string | null;

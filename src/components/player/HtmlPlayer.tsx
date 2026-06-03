@@ -1,11 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import { createMMKV } from 'react-native-mmkv';
 
 import type { CourseHtmlLikeModule, CourseScormModule } from '../../types/course.types';
-
-const storage = createMMKV();
+import { asyncStorage } from '../../utils/storage';
 
 type HtmlPlayerProps = {
   module: CourseHtmlLikeModule | CourseScormModule;
@@ -111,7 +109,7 @@ export function HtmlPlayer({ module, onCommit, onTerminate }: HtmlPlayerProps) {
               : undefined;
 
           if (suspendData != null) {
-            storage.set(`scorm:suspend_data:${module.contentId}`, suspendData);
+            void asyncStorage.setItem(`scorm:suspend_data:${module.contentId}`, suspendData);
           }
 
           onCommit?.({ suspendData, completionStatus });
