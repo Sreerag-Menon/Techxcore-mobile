@@ -4,7 +4,7 @@ import { BottomSheetBackdrop, BottomSheetModal } from '@gorhom/bottom-sheet';
 import { fetch as expoFetch } from 'expo/fetch';
 
 import { useTheme } from '../../theme';
-import { asyncStorage } from '../../utils/storage';
+import { asyncStorage, buildStorageKey } from '../../utils/storage';
 
 type ChatMessage = {
   id: string;
@@ -19,6 +19,24 @@ export type StudyBuddyChatbotProps = {
 };
 
 export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBuddyChatbotProps) {
+  const safeStorageKey = useMemo(() => {
+    try {
+      const parts = storageKey.split(':');
+      if (parts.length >= 3 && parts[0] === 'studybuddy') {
+        return buildStorageKey(parts[0], parts[1], parts[2]);
+      }
+      return buildStorageKey('studybuddy', storageKey);
+    } catch {
+      if (__DEV__) {
+        console.warn('[StudyBuddy] Invalid storageKey; chat history will not persist.', {
+          storageKeyPreview: storageKey.slice(0, 80),
+          storageKeyLength: storageKey.length,
+        });
+      }
+      return null;
+    }
+  }, [storageKey]);
+
   const { colors } = useTheme();
   const sheetRef = useRef<BottomSheetModal>(null);
   const snapPoints = useMemo(() => ['40%', '80%'], []);
@@ -29,10 +47,12 @@ export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBud
   const [isStreaming, setIsStreaming] = useState(false);
 
   useEffect(() => {
+    if (!safeStorageKey) return;
+
     let mounted = true;
 
     void (async () => {
-      const stored = await asyncStorage.getItem<ChatMessage[]>(storageKey);
+      const stored = await asyncStorage.getItem<ChatMessage[]>(safeStorageKey);
       if (mounted && stored?.length) {
         setMessages(stored);
       }
@@ -41,11 +61,12 @@ export function StudyBuddyChatbot({ storageKey, endpointUrl, context }: StudyBud
     return () => {
       mounted = false;
     };
-  }, [storageKey]);
+  }, [safeStorageKey]);
 
   const persist = (next: ChatMessage[]) => {
     setMessages(next);
-    void asyncStorage.setItem(storageKey, next);
+    if (!safeStorageKey) return;
+    void asyncStorage.setItem(safeStorageKey, next);
   };
 
   const send = async () => {

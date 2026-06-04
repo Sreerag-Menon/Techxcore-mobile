@@ -7,6 +7,8 @@ export { default as StatCard } from './StatCard';
 export { default as StatCardRow } from './StatCardRow';
 export { default as CourseSection } from './CourseSection';
 export { default as DashboardCourseCard } from './DashboardCourseCard';
+export { default as CourseListCard } from './CourseListCard';
+export type { CourseListCardProps } from './CourseListCard';
 export { default as AssessmentSection } from './AssessmentSection';
 export { default as DashboardAssessmentCard } from './DashboardAssessmentCard';
 export { default as DashboardSkeleton } from './DashboardSkeleton';

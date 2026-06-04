@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { BottomSheetBackdrop, BottomSheetModal } from '@gorhom/bottom-sheet';
-import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useTheme } from '../../theme';
+import {
+  downloadUrlToCache,
+  getCacheFileUri,
+} from '../../utils/expoFileCache';
 import { PdfWebView } from './PdfWebView';
 import { useGetCertificateQuery } from '../../redux/api/playerApi';
 
@@ -31,16 +34,9 @@ export function CertificateViewer({ coursePublishId, enabled }: CertificateViewe
 
   const url = data?.certificateUrl;
 
-  const cachePath = useMemo(() => {
-    const base =
-      // expo-file-system SDK54 exposes Paths.cache/document; `uri` is present at runtime.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((FileSystem.Paths.cache as any).uri as string | undefined) ??
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((FileSystem.Paths.document as any).uri as string | undefined) ??
-      '';
-    if (!base || !url) return '';
-    return `${base}cert_${coursePublishId}_${safeFileName(url)}.pdf`;
+  const cacheFileName = useMemo(() => {
+    if (!url) return '';
+    return `cert_${coursePublishId}_${safeFileName(url)}.pdf`;
   }, [coursePublishId, url]);
 
   useEffect(() => {
@@ -54,19 +50,19 @@ export function CertificateViewer({ coursePublishId, enabled }: CertificateViewe
 
       try {
         setIsDownloading(true);
-        if (!url.startsWith('http') || !cachePath) {
+        if (!url.startsWith('http') || !cacheFileName) {
           if (mounted) setLocalUri(url);
           return;
         }
 
-        const info = await FileSystem.getInfoAsync(cachePath);
-        if (info.exists && info.uri) {
-          if (mounted) setLocalUri(info.uri);
+        const cachedUri = getCacheFileUri(cacheFileName);
+        if (cachedUri) {
+          if (mounted) setLocalUri(cachedUri);
           return;
         }
 
-        const result = await FileSystem.downloadAsync(url, cachePath);
-        if (mounted) setLocalUri(result.uri);
+        const downloadedUri = await downloadUrlToCache(cacheFileName, url);
+        if (mounted) setLocalUri(downloadedUri ?? url);
       } catch {
         if (mounted) setLocalUri(url);
       } finally {
@@ -78,7 +74,7 @@ export function CertificateViewer({ coursePublishId, enabled }: CertificateViewe
     return () => {
       mounted = false;
     };
-  }, [cachePath, url]);
+  }, [cacheFileName, url]);
 
   if (!enabled) return null;
 
@@ -155,4 +151,3 @@ export function CertificateViewer({ coursePublishId, enabled }: CertificateViewe
     </>
   );
 }
-

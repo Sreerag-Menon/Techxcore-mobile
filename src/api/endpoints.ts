@@ -6,8 +6,11 @@
 export const ENDPOINTS = {
   AUTH: {
     LOGIN: '/member_login',
+    MOBILE_LOGIN: '/mobile_member_login',
     LOGOUT: '/member_logout',
+    MOBILE_LOGOUT: '/mobile_member_logout',
     REFRESH_TOKEN: '/refresh_auth_token',
+    MOBILE_REFRESH: '/mobile_refresh_token',
     CLEAR_USER_SESSION: '/clear_user_session_info',
     FORGOT_PASSWORD: '/forgot_password',
     RESET_PASSWORD: '/reset_member_password',

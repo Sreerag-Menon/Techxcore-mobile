@@ -30,6 +30,7 @@ Reference for web LMS student flows vs Techxcore-mobile. API base: `POST /api/v0
 | Discourse | Yes | Tab wired | Done |
 | Video resume seek | Yes | Native + WebView | Done |
 | YouTube/Vimeo progress | Partial web | Bridge added | Done |
+| HTMLEditor / embedded inline HTML | `Embedded` + **Mark as complete**; HTMLEditor HTML from `browse_url` via `dangerouslySetInnerHTML` | WebView inline from `browse_url` only (not API `content_url`); file cache when large; **Mark as complete** (no auto-complete on load) | Done |
 | Old courses | Yes | Screen added | Done |
 | Offline downloads | No | No | Out of scope |
 

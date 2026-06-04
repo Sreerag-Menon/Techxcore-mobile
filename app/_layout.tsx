@@ -1,6 +1,8 @@
 import '../global.css';
 
 import { useEffect } from 'react';
+import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Provider } from 'react-redux';
 import { Slot } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -11,6 +13,8 @@ import { useFonts } from 'expo-font';
 
 import { store } from '../src/redux/store';
 import { ThemeProvider } from '../src/theme/ThemeContext';
+import { refreshStoredAuthToken } from '../src/api/client';
+import { APP_CONFIG } from '../src/constants/config';
 import { restoreSession } from '../src/redux/slices/authSlice';
 import { restoreTenant } from '../src/redux/slices/tenantSlice';
 import { useAppDispatch, useAppSelector } from '../src/redux/hooks';
@@ -49,6 +53,23 @@ function AppNavigator() {
       SplashScreen.hideAsync();
     }
   }, [isRestoringTenant, isRestoringSession, fontsLoaded]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (state) => {
+      if (state !== 'active') return;
+      try {
+        const expiresAt = Number(
+          await AsyncStorage.getItem(APP_CONFIG.ACCESS_TOKEN_EXPIRES_AT_KEY),
+        );
+        if (expiresAt && expiresAt - Date.now() < 2 * 60 * 1000) {
+          await refreshStoredAuthToken();
+        }
+      } catch {
+        // Silent – interceptor handles hard failures on the next API call
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   return <Slot />;
 }

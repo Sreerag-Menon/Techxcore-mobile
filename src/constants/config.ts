@@ -9,7 +9,7 @@
 export const APP_CONFIG = {
   /** Default/fallback API base URL – used during development or before tenant selection */
   DEFAULT_API_BASE_URL:
-    process.env.EXPO_PUBLIC_API_BASE_URL || 'http://10.0.2.2:8000',
+    process.env.EXPO_PUBLIC_API_BASE_URL || 'http://192.168.1.42:8000',
   /** Default API version – all tenants currently use v0.2 */
   DEFAULT_API_VERSION: process.env.EXPO_PUBLIC_API_VERSION || 'v0.2',
 
@@ -33,8 +33,12 @@ export const APP_CONFIG = {
   get API_BASE_PATH(): string {
     return `${this.API_BASE_URL}/api/${this.API_VERSION}`;
   },
-  /** SecureStore key for the auth token */
+  /** SecureStore key for the short-lived access token (JWT) */
   TOKEN_KEY: 'auth_token',
+  /** SecureStore key for the long-lived opaque refresh token */
+  REFRESH_TOKEN_KEY: 'refresh_token',
+  /** AsyncStorage key for access token expiry timestamp (ms since epoch) */
+  ACCESS_TOKEN_EXPIRES_AT_KEY: 'access_token_expires_at',
   /** SecureStore key for the backend session id */
   SESSION_KEY: 'session_id',
   /** SecureStore key for the persisted tenant configuration */

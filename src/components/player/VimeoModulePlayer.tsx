@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import {
+  WEBVIEW_EMBED_BASE_URL,
   buildVimeoProgressHtml,
   extractVimeoVideoId,
   parseEmbedProgressMessage,
@@ -29,7 +30,7 @@ export function VimeoModulePlayer({
   return (
     <View style={styles.container}>
       <WebView
-        source={{ html }}
+        source={{ html, baseUrl: WEBVIEW_EMBED_BASE_URL }}
         originWhitelist={['*']}
         javaScriptEnabled
         domStorageEnabled

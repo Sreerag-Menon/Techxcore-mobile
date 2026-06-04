@@ -1,16 +1,11 @@
 import { memo, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import Animated, {
-  FadeIn,
-  FadeInRight,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInRight } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { useReducedMotion } from 'react-native-reanimated';
 
 import { SkeletonCard } from '@/components';
+import { TabPill } from '@/components/ui';
 import { useTheme, fontSize, fontWeight } from '@/theme';
 import { CoursesIcon } from '@/components/icons/menu';
 import type { Course } from '@/types/course.types';
@@ -25,104 +20,6 @@ export interface CourseSectionProps {
   isLoadingEnrolled?: boolean;
   isLoadingOpen?: boolean;
 }
-
-// ─── Animated tab pill — spring scale on press ───────────────────────────────
-interface TabPillProps {
-  label: string;
-  count: number;
-  isActive: boolean;
-  onPress: () => void;
-  activeColor: string;
-  activeBg: string;
-  inactiveColor: string;
-  inactiveBg: string;
-  borderColor: string;
-  inactiveBorder: string;
-}
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
-
-const TabPill = memo(function TabPill({
-  label,
-  count,
-  isActive,
-  onPress,
-  activeColor,
-  activeBg,
-  inactiveColor,
-  inactiveBg,
-  borderColor,
-  inactiveBorder,
-}: TabPillProps) {
-  const scale = useSharedValue(1);
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  return (
-    <AnimatedPressable
-      onPress={onPress}
-      onPressIn={() => {
-        scale.value = withSpring(0.95, { damping: 18, stiffness: 350 });
-      }}
-      onPressOut={() => {
-        scale.value = withSpring(1, { damping: 18, stiffness: 350 });
-      }}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      style={[
-        animatedStyle,
-        {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 6,
-          paddingHorizontal: 14,
-          paddingVertical: 8,
-          borderRadius: 10,
-          backgroundColor: isActive ? activeBg : inactiveBg,
-          borderWidth: 1,
-          borderColor: isActive ? borderColor : inactiveBorder,
-          // @ts-ignore
-          borderCurve: 'continuous',
-        },
-      ]}
-    >
-      <Text
-        style={{
-          color: isActive ? activeColor : inactiveColor,
-          fontSize: fontSize.sm,
-          fontWeight: isActive ? fontWeight.bold : fontWeight.medium,
-        }}
-      >
-        {label}
-      </Text>
-      {/* {count > 0 && (
-        <View
-          style={{
-            backgroundColor: isActive ? activeColor : inactiveColor,
-            borderRadius: 10,
-            minWidth: 18,
-            height: 18,
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingHorizontal: 4,
-          }}
-        >
-          <Text
-            style={{
-              color: isActive ? activeBg : inactiveBg,
-              fontSize: 10,
-              fontWeight: fontWeight.bold,
-              fontVariant: ['tabular-nums'],
-            }}
-          >
-            {count > 9 ? '9+' : count}
-          </Text>
-        </View>
-      )} */}
-    </AnimatedPressable>
-  );
-});
 
 // ─── Main section ─────────────────────────────────────────────────────────────
 
@@ -205,6 +102,7 @@ const CourseSection = memo(function CourseSection({
         <TabPill
           label="Enrolled"
           count={enrolled.length}
+          showCount
           isActive={activeTab === 'enrolled'}
           onPress={() => setActiveTab('enrolled')}
           activeColor={colors.primary}
@@ -217,6 +115,7 @@ const CourseSection = memo(function CourseSection({
         <TabPill
           label="Open"
           count={open.length}
+          showCount
           isActive={activeTab === 'open'}
           onPress={() => setActiveTab('open')}
           activeColor={colors.primary}

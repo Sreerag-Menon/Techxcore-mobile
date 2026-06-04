@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { AppState, type AppStateStatus, Text, View } from 'react-native';
 
-import type { CourseModule } from '../../types/course.types';
+import { HTML_EDITOR_MODULE_TYPE, type CourseModule } from '../../types/course.types';
 import { useTheme } from '../../theme';
-import { asyncStorage } from '../../utils/storage';
+import { asyncStorage, buildStorageKey } from '../../utils/storage';
+import { moduleTracksPlaybackTime, needsManualModuleCompletion } from '../../utils/moduleCompletion';
 import {
   useRecordPointsMutation,
   useSaveModuleProgressMutation,
@@ -18,17 +19,25 @@ import { AssessmentRunner } from './AssessmentRunner';
 
 export type PlayerContainerProps = {
   coursePublishId: number;
+  courseId?: number;
   curriculumId?: number;
+  memberId?: number;
+  acadYearId?: number;
   module: CourseModule;
   studyMapTriggerIntervalMs?: number;
+  onSectionReady?: () => void;
   onModuleComplete?: (module: CourseModule) => void;
 };
 
 export function PlayerContainer({
   coursePublishId,
+  courseId,
   curriculumId,
+  memberId,
+  acadYearId,
   module,
   studyMapTriggerIntervalMs = 30_000,
+  onSectionReady,
   onModuleComplete,
 }: PlayerContainerProps) {
   const { colors } = useTheme();
@@ -37,6 +46,9 @@ export function PlayerContainer({
   const initialSeekSeconds = module.summary?.lastPositionSeconds ?? 0;
   const latestSecondsRef = useRef<number>(Math.max(0, initialSeekSeconds));
   const isAppActiveRef = useRef(true);
+
+  const tracksPlaybackTime = moduleTracksPlaybackTime(module);
+  const manualCompletion = needsManualModuleCompletion(module);
 
   const progressArgs = useMemo(
     () => ({
@@ -48,8 +60,19 @@ export function PlayerContainer({
   );
 
   useEffect(() => {
+    if (!tracksPlaybackTime) return;
+
     latestSecondsRef.current = Math.max(0, initialSeekSeconds);
-    const storageKey = `progress:last:${coursePublishId}:${module.contentId}`;
+    if (!Number.isFinite(module.contentId) || module.contentId <= 0) {
+      if (__DEV__) {
+        console.warn('[PlayerContainer] Skip progress storage — invalid contentId', {
+          contentId: module.contentId,
+          moduleType: module.type,
+        });
+      }
+      return;
+    }
+    const storageKey = buildStorageKey('progress:last', coursePublishId, module.contentId);
 
     void (async () => {
       const persisted = await asyncStorage.getItem<number>(storageKey);
@@ -96,14 +119,30 @@ export function PlayerContainer({
     progressArgs,
     saveProgress,
     studyMapTriggerIntervalMs,
+    tracksPlaybackTime,
   ]);
 
   const handleComplete = () => {
+    if (manualCompletion) return;
+    if (
+      courseId == null ||
+      curriculumId == null ||
+      memberId == null ||
+      !Number.isFinite(courseId) ||
+      !Number.isFinite(curriculumId) ||
+      !Number.isFinite(memberId)
+    ) {
+      return;
+    }
     void recordPoints({
       coursePublishId,
+      courseId,
       curriculumId,
+      memberId,
       contentId: module.contentId,
-      completed: true,
+      chapterId: module.chapterId,
+      videoUnitId: module.contentId,
+      acadYearId,
     }).catch(() => {});
     onModuleComplete?.(module);
   };
@@ -117,6 +156,7 @@ export function PlayerContainer({
           onProgress={(seconds) => {
             latestSecondsRef.current = seconds;
           }}
+          onEnd={handleComplete}
         />
       );
     }
@@ -160,8 +200,13 @@ export function PlayerContainer({
     );
   }
 
-  if (module.type === 'html' || module.type === 'embedded' || module.type === 'ppt') {
-    return <HtmlPlayer module={module} />;
+  if (
+    module.type === 'html' ||
+    module.type === 'embedded' ||
+    module.type === 'ppt' ||
+    module.type === HTML_EDITOR_MODULE_TYPE
+  ) {
+    return <HtmlPlayer module={module} onSectionReady={onSectionReady} />;
   }
 
   if (module.type === 'scorm') {

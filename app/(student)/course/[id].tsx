@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { Text, View } from 'react-native';
 
@@ -12,8 +12,10 @@ import { setActiveContentId } from '../../../src/redux/slices/playerSlice';
 import {
   useGetCourseHierarchyQuery,
   useGetCurrentModuleQuery,
+  useRecordPointsMutation,
   useSaveCreditTimeMutation,
 } from '../../../src/redux/api/playerApi';
+import { needsManualModuleCompletion } from '../../../src/utils/moduleCompletion';
 import { useTheme } from '../../../src/theme';
 import type { CourseModule } from '../../../src/types/course.types';
 import { PlayerContainer } from '../../../src/components/player/PlayerContainer';
@@ -96,7 +98,10 @@ export default function CourseDetailScreen() {
   );
 
   const [saveCreditTime] = useSaveCreditTimeMutation();
+  const [recordPoints, { isLoading: isRecordingPoints }] = useRecordPointsMutation();
   const creditHourIdRef = useRef(0);
+  const completionInFlightRef = useRef(false);
+  const [sectionReady, setSectionReady] = useState(false);
 
   const studentId = memberId ?? authMemberId;
 
@@ -171,6 +176,63 @@ export default function CourseDetailScreen() {
   const nextModule =
     activeIndex >= 0 && activeIndex < allModules.length - 1 ? allModules[activeIndex + 1] : null;
 
+  useEffect(() => {
+    setSectionReady(false);
+    completionInFlightRef.current = false;
+  }, [activeModule?.contentId]);
+
+  const showMarkComplete = useMemo(() => {
+    if (!activeModule) return false;
+    if (activeModule.status === 'completed') return false;
+    if (!needsManualModuleCompletion(activeModule)) return false;
+    return sectionReady;
+  }, [activeModule, sectionReady]);
+
+  const handleMarkComplete = useCallback(() => {
+    if (
+      !activeModule ||
+      !publishId ||
+      ctxCourseId == null ||
+      ctxCurriculumId == null ||
+      !studentId ||
+      activeModule.status === 'completed' ||
+      completionInFlightRef.current ||
+      isRecordingPoints
+    ) {
+      return;
+    }
+
+    completionInFlightRef.current = true;
+    void recordPoints({
+      coursePublishId: publishId,
+      courseId: ctxCourseId,
+      curriculumId: ctxCurriculumId,
+      memberId: studentId,
+      contentId: activeModule.contentId,
+      chapterId: activeModule.chapterId,
+      videoUnitId: activeModule.contentId,
+      acadYearId: authUser?.acad_year_id,
+    })
+      .unwrap()
+      .then(() => {
+        void refetchHierarchy();
+      })
+      .catch(() => {})
+      .finally(() => {
+        completionInFlightRef.current = false;
+      });
+  }, [
+    activeModule,
+    authUser?.acad_year_id,
+    ctxCourseId,
+    ctxCurriculumId,
+    isRecordingPoints,
+    publishId,
+    recordPoints,
+    refetchHierarchy,
+    studentId,
+  ]);
+
   if (!playerContext) {
     return (
       <ScreenLayout scrollable={false}>
@@ -220,8 +282,12 @@ export default function CourseDetailScreen() {
         {activeModule ? (
           <PlayerContainer
             coursePublishId={playerContext.coursePublishId}
+            courseId={playerContext.courseId}
             curriculumId={playerContext.curriculumId}
+            memberId={studentId ?? undefined}
+            acadYearId={authUser?.acad_year_id}
             module={activeModule}
+            onSectionReady={() => setSectionReady(true)}
           />
         ) : (
           <Card variant="elevated" padding="lg">
@@ -231,6 +297,16 @@ export default function CourseDetailScreen() {
             />
           </Card>
         )}
+
+        {showMarkComplete ? (
+          <Card variant="elevated" padding="md">
+            <Button
+              title={isRecordingPoints ? 'Saving…' : 'Mark as complete'}
+              disabled={isRecordingPoints}
+              onPress={handleMarkComplete}
+            />
+          </Card>
+        ) : null}
 
         <Card variant="elevated" padding="lg">
           <View
@@ -282,7 +358,11 @@ export default function CourseDetailScreen() {
         ) : null}
 
         <StudyBuddyChatbot
-          storageKey={`studybuddy:${playerContext.coursePublishId}:${activeModule?.contentId ?? 'none'}`}
+          storageKey={
+            activeModule?.contentId != null && Number.isFinite(activeModule.contentId)
+              ? `studybuddy:${playerContext.coursePublishId}:${activeModule.contentId}`
+              : `studybuddy:${playerContext.coursePublishId}:none`
+          }
           context={{
             coursePublishId: playerContext.coursePublishId,
             contentId: activeModule?.contentId,

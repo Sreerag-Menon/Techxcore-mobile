@@ -16,3 +16,5 @@ export {
   default as FloatingTabBar,
   getFloatingTabBarScrollPadding,
 } from './FloatingTabBar';
+export { default as TabPill } from './TabPill';
+export type { TabPillProps } from './TabPill';

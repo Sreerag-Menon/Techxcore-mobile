@@ -12,7 +12,41 @@ import {
   extractArray,
   extractItem,
 } from '../../api/normalize';
-import type { CourseHier } from '../../types/course.types';
+import type { CourseHier, CourseModule } from '../../types/course.types';
+
+export type RecordPointsArgs = {
+  coursePublishId: number;
+  courseId: number;
+  curriculumId: number;
+  memberId: number;
+  contentId: number;
+  chapterId: number;
+  videoUnitId?: number;
+  type?: 'M' | 'T';
+  classId?: number;
+  acadYearId?: number;
+};
+
+function patchModuleStatusInHierarchy(
+  hierarchy: CourseHier,
+  contentId: number,
+  status: CourseModule['status'],
+): CourseHier {
+  return {
+    ...hierarchy,
+    chapters: hierarchy.chapters.map((chapter) => ({
+      ...chapter,
+      modules: chapter.modules.map((mod) =>
+        mod.contentId === contentId ? { ...mod, status } : mod,
+      ),
+    })),
+  };
+}
+
+function extractPointsStatusValue(response: unknown): number {
+  const row = extractItem<Record<string, unknown>>(response);
+  return asNumber(row?.statusvalue ?? row?.StatusValue, 0);
+}
 
 type AxiosBaseQueryArgs = {
   url: string;
@@ -203,9 +237,11 @@ export const playerApi = createApi({
         seconds: number;
         totalSeconds?: number;
         action?: 'summary' | 'progress';
+        /** When false, skips CurrentModule refetch (inline HTML / HTMLeditor). */
+        invalidateCurrentModule?: boolean;
       }
     >({
-      query: ({ coursePublishId, curriculumId, contentId, seconds, totalSeconds, action }) => ({
+      query: ({ coursePublishId, curriculumId, contentId, seconds, totalSeconds }) => ({
         url: ENDPOINTS.STUDENT.MODULE_PROGRESS,
         data: {
           coursePublishId: String(coursePublishId),
@@ -215,10 +251,15 @@ export const playerApi = createApi({
           maxViewedPos: totalSeconds ?? seconds,
         },
       }),
-      invalidatesTags: (_result, _error, arg) => [
-        { type: 'CurrentModule', id: arg.coursePublishId },
-        { type: 'Progress', id: arg.contentId },
-      ],
+      invalidatesTags: (_result, _error, arg) => {
+        const tags: Array<{ type: 'CurrentModule' | 'Progress'; id: number }> = [
+          { type: 'Progress', id: arg.contentId },
+        ];
+        if (arg.invalidateCurrentModule !== false) {
+          tags.push({ type: 'CurrentModule', id: arg.coursePublishId });
+        }
+        return tags;
+      },
     }),
 
     saveTestProgress: builder.mutation<
@@ -236,32 +277,48 @@ export const playerApi = createApi({
       }),
     }),
 
-    recordPoints: builder.mutation<
-      unknown,
-      {
-        coursePublishId: number;
-        curriculumId?: number;
-        contentId: number;
-        points?: number;
-        credits?: number;
-        completed?: boolean;
-      }
-    >({
-      query: ({ coursePublishId, curriculumId, contentId, points, credits, completed }) => ({
+    recordPoints: builder.mutation<unknown, RecordPointsArgs>({
+      query: ({
+        coursePublishId,
+        curriculumId,
+        courseId,
+        memberId,
+        contentId,
+        chapterId,
+        videoUnitId,
+        type = 'M',
+        classId,
+        acadYearId,
+      }) => ({
         url: ENDPOINTS.STUDENT.TRAINEE_POINTS,
         data: {
+          memberId: String(memberId),
           coursePublishId: String(coursePublishId),
-          curriculumId: curriculumId != null ? String(curriculumId) : undefined,
-          contentId,
-          points,
-          credits,
-          completed,
+          curriculumId: String(curriculumId),
+          courseId: String(courseId),
+          videoUnitId: String(videoUnitId ?? contentId),
+          chapterId: String(chapterId),
+          type,
+          ...(classId != null ? { classId: String(classId) } : {}),
+          ...(acadYearId != null ? { acadYearId: String(acadYearId) } : {}),
         },
       }),
-      invalidatesTags: (_result, _error, arg) => [
-        { type: 'Hierarchy', id: arg.coursePublishId },
-        { type: 'CurrentModule', id: arg.coursePublishId },
-      ],
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled;
+          if (extractPointsStatusValue(data) !== 1) return;
+          dispatch(
+            playerApi.util.updateQueryData(
+              'getCourseHierarchy',
+              { coursePublishId: arg.coursePublishId, courseId: arg.courseId },
+              (draft) => patchModuleStatusInHierarchy(draft, arg.contentId, 'completed'),
+            ),
+          );
+        } catch {
+          // mutation failed — leave cache unchanged
+        }
+      },
+      invalidatesTags: () => [],
     }),
 
     saveCreditTime: builder.mutation<

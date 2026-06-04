@@ -1,31 +1,83 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
-
 import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Input,
-  ProgressBar,
-  SkeletonCard,
-} from '../../../src/components';
-import { ScreenLayout, TabLayout } from '../../../src/layouts';
-import { useAppDispatch, useAppSelector } from '../../../src/redux';
-import { fetchCourses } from '../../../src/redux/slices/courseSlice';
-import {
-  navigateToCourse,
-  navigateToCourseDetails,
-} from '../../../src/services/courseNavigation';
-import { useTheme } from '../../../src/theme';
-import type { Course } from '../../../src/types/course.types';
+  FlatList,
+  RefreshControl,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useReducedMotion } from 'react-native-reanimated';
 
-type CourseFilter = 'all' | 'in_progress' | 'completed';
+import { EmptyState, ErrorState, Input, SkeletonCard } from '@/components';
+import { CourseListCard } from '@/components/dashboard';
+import { getFloatingTabBarScrollPadding, TabPill } from '@/components/ui';
+import { useResponsive } from '@/hooks';
+import { useAppDispatch, useAppSelector } from '@/redux';
+import { fetchCourses } from '@/redux/slices/courseSlice';
+import { navigateToCourse } from '@/services/courseNavigation';
+import { fontSize, fontWeight, useTheme } from '@/theme';
+import type { Course } from '@/types/course.types';
+
+type CourseFilter = 'all' | 'in_progress' | 'not_started' | 'completed';
+
+const FILTER_OPTIONS: { key: CourseFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'in_progress', label: 'In progress' },
+  { key: 'not_started', label: 'Not started' },
+  { key: 'completed', label: 'Completed' },
+];
+
+function countByStatus(courses: Course[], status: Course['status']): number {
+  return courses.filter((c) => c.status === status).length;
+}
+
+function getEmptyStateCopy(
+  filter: CourseFilter,
+  hasSearch: boolean,
+): { title: string; message: string } {
+  if (hasSearch) {
+    return {
+      title: 'No matching courses',
+      message: 'Try a different search term or clear the filter to see more courses.',
+    };
+  }
+
+  switch (filter) {
+    case 'in_progress':
+      return {
+        title: 'No courses in progress',
+        message: 'Open a course from your list and start a lesson to see it here.',
+      };
+    case 'not_started':
+      return {
+        title: 'Nothing to start yet',
+        message: 'All your enrolled courses are already underway — pick one to resume.',
+      };
+    case 'completed':
+      return {
+        title: 'No completed courses',
+        message: 'Finish a course to see it here. Your progress is saved as you go.',
+      };
+    default:
+      return {
+        title: 'No enrolled courses',
+        message: 'Courses assigned to you will appear here once they are published.',
+      };
+  }
+}
 
 export default function CoursesScreen() {
   const dispatch = useAppDispatch();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReducedMotion();
+  const tabBarPadding = getFloatingTabBarScrollPadding(insets.bottom);
+  const { horizontalPadding } = useResponsive();
+
   const { courses, isLoading, error } = useAppSelector((state) => state.course);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<CourseFilter>('all');
@@ -48,13 +100,26 @@ export default function CoursesScreen() {
     }
   }, [loadCourses]);
 
+  const statusCounts = useMemo(
+    () => ({
+      all: courses.length,
+      in_progress: countByStatus(courses, 'in_progress'),
+      not_started: countByStatus(courses, 'not_started'),
+      completed: countByStatus(courses, 'completed'),
+    }),
+    [courses],
+  );
+
   const filteredCourses = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     return courses.filter((course) => {
-      const matchesSearch = [course.course_name, course.course_description]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(searchQuery.trim().toLowerCase());
+      const matchesSearch =
+        query.length === 0 ||
+        [course.course_name, course.course_description]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(query);
 
       const matchesFilter =
         activeFilter === 'all' ? true : course.status === activeFilter;
@@ -63,145 +128,155 @@ export default function CoursesScreen() {
     });
   }, [activeFilter, courses, searchQuery]);
 
-  return (
-    <ScreenLayout refreshing={isRefreshing} onRefresh={onRefresh}>
-      <TabLayout
-        title="Courses"
-        subtitle="Browse your enrolled courses, search by title, and jump back into the next lesson."
-      >
-        <Input
-          label="Search"
-          placeholder="Search courses"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
+  const hasSearch = searchQuery.trim().length > 0;
+  const emptyCopy = getEmptyStateCopy(activeFilter, hasSearch);
 
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {(['all', 'in_progress', 'completed'] as CourseFilter[]).map((filter) => (
-            <Button
-              key={filter}
-              title={filter.replace('_', ' ')}
-              onPress={() => setActiveFilter(filter)}
-              variant={activeFilter === filter ? 'primary' : 'outline'}
-              size="sm"
-            />
+  const pillActiveBg = `${colors.primary}18`;
+  const pillInactiveBg = isDark ? colors.surfaceRaised : colors.surfaceOverlay;
+
+  const renderHeader = () => (
+    <View style={{ gap: 14, paddingBottom: 4 }}>
+      {/* Page title */}
+      <Text
+        style={{
+          color: colors.text,
+          fontSize: 28,
+          fontWeight: '700',
+          letterSpacing: -0.3,
+        }}
+      >
+        Courses
+      </Text>
+
+      <Input
+        placeholder="Search courses"
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        leftIcon={<Ionicons name="search-outline" size={20} color={colors.textTertiary} />}
+      />
+
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+      >
+        {FILTER_OPTIONS.map(({ key, label }) => (
+          <TabPill
+            key={key}
+            label={label}
+            count={statusCounts[key]}
+            showCount
+            isActive={activeFilter === key}
+            onPress={() => setActiveFilter(key)}
+            activeColor={colors.primary}
+            activeBg={pillActiveBg}
+            inactiveColor={colors.textSecondary}
+            inactiveBg={pillInactiveBg}
+            borderColor={`${colors.primary}40`}
+            inactiveBorder={colors.border}
+          />
+        ))}
+      </ScrollView>
+
+      {!isLoading || courses.length > 0 ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <Text
+            style={{
+              color: colors.textSecondary,
+              fontSize: fontSize.sm,
+              fontWeight: fontWeight.medium,
+            }}
+          >
+            {filteredCourses.length === 1
+              ? '1 course'
+              : `${filteredCourses.length} courses`}
+          </Text>
+          <Text style={{ color: colors.textTertiary, fontSize: fontSize.xs }}>
+            Sorted by enrollment
+          </Text>
+        </View>
+      ) : null}
+
+      {error && !courses.length && !isLoading ? (
+        <ErrorState
+          title="Courses unavailable"
+          message={error}
+          onRetry={() => {
+            void loadCourses();
+          }}
+        />
+      ) : null}
+
+      {isLoading && !courses.length ? (
+        <View style={{ gap: 12 }}>
+          {[0, 1, 2].map((item) => (
+            <SkeletonCard key={item} />
           ))}
         </View>
-
-        {error && !courses.length && !isLoading ? (
-          <ErrorState
-            title="Courses unavailable"
-            message={error}
-            onRetry={() => {
-              void loadCourses();
-            }}
-          />
-        ) : null}
-
-        {isLoading && !courses.length ? (
-          <View style={{ gap: 16 }}>
-            {[0, 1, 2].map((item) => (
-              <SkeletonCard key={item} />
-            ))}
-          </View>
-        ) : filteredCourses.length === 0 ? (
-          <EmptyState
-            title="No matching courses"
-            message="Try a different search term or switch the filter to view all courses."
-          />
-        ) : (
-          filteredCourses.map((course) => (
-            <Card key={course.course_publish_id || course.course_id} variant="elevated" padding="lg">
-              <View style={{ gap: 12 }}>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: 17,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {course.course_name}
-                    </Text>
-                    {course.course_description ? (
-                      <Text
-                        style={{
-                          color: colors.textSecondary,
-                          fontSize: 13,
-                          lineHeight: 19,
-                        }}
-                        numberOfLines={2}
-                      >
-                        {course.course_description}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <Badge
-                    label={course.status.replace('_', ' ')}
-                    variant={
-                      course.status === 'completed'
-                        ? 'success'
-                        : course.status === 'in_progress'
-                          ? 'primary'
-                          : 'neutral'
-                    }
-                  />
-                </View>
-
-                <ProgressBar progress={course.progress_percentage || 0} showLabel />
-
-                {course.pending_test === 1 ? (
-                  <Text style={{ color: colors.warning ?? colors.primary, fontSize: 12 }}>
-                    Pending assessment — complete before opening
-                  </Text>
-                ) : null}
-
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 8,
-                  }}
-                >
-                  <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                    {course.completed_modules || 0}/{course.total_modules || 0} modules
-                  </Text>
-                  {course.duration ? (
-                    <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                      {course.duration}
-                    </Text>
-                  ) : null}
-                </View>
-
-                <CourseCardActions course={course} />
-              </View>
-            </Card>
-          ))
-        )}
-      </TabLayout>
-    </ScreenLayout>
-  );
-}
-
-function CourseCardActions({ course }: { course: Course }) {
-  return (
-    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-      <Button
-        title="View details"
-        size="sm"
-        variant="outline"
-        onPress={() => navigateToCourseDetails(course)}
-      />
-      <Button title="Open" size="sm" onPress={() => navigateToCourse(course)} />
+      ) : null}
     </View>
+  );
+
+  const renderItem = useCallback(
+    ({ item, index }: { item: Course; index: number }) => {
+      const entering = reduceMotion
+        ? undefined
+        : FadeInDown.delay(index * 60).springify().damping(20);
+
+      return (
+        <Animated.View entering={entering} style={{ marginBottom: 12 }}>
+          <CourseListCard
+            course={item}
+            onPress={() => navigateToCourse(item)}
+          />
+        </Animated.View>
+      );
+    },
+    [reduceMotion],
+  );
+
+  const listEmpty =
+    !isLoading && courses.length > 0 && filteredCourses.length === 0 ? (
+      <EmptyState title={emptyCopy.title} message={emptyCopy.message} />
+    ) : !isLoading && courses.length === 0 && !error ? (
+      <EmptyState title={emptyCopy.title} message={emptyCopy.message} />
+    ) : null;
+
+  return (
+    <SafeAreaView
+      edges={['top', 'left', 'right']}
+      style={{ flex: 1, backgroundColor: colors.background }}
+    >
+      <FlatList
+        style={{ flex: 1 }}
+        data={isLoading && !courses.length ? [] : filteredCourses}
+        keyExtractor={(item) => String(item.course_publish_id || item.course_id)}
+        key={activeFilter}
+        renderItem={renderItem}
+        ListHeaderComponent={renderHeader}
+        ListEmptyComponent={listEmpty}
+        contentContainerStyle={{
+          paddingHorizontal: horizontalPadding,
+          paddingTop: 16,
+          paddingBottom: tabBarPadding + 24,
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      />
+    </SafeAreaView>
   );
 }

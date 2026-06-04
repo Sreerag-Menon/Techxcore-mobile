@@ -4,7 +4,7 @@
  * Features:
  *  - Base URL from APP_CONFIG
  *  - Request interceptor: attaches x-access-token from SecureStore
- *  - Response interceptor: 401 → refresh token using session_id → retry once
+ *  - Response interceptor: 401/403 (jwt expired) → refresh via refresh token → retry once
  *  - Network error retry (1 attempt)
  *  - Dev-mode request/response logging
  */
@@ -15,6 +15,7 @@ import axios, {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
 import { APP_CONFIG } from '../constants/config';
@@ -29,12 +30,38 @@ interface RetryableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
   _retryCount?: number;
   skipAuth?: boolean;
+  /** Do not attempt token refresh / retry on 401–403 for this request */
+  skipRefresh?: boolean;
 }
 
 /** Request config for API calls that may need custom auth behavior */
 export interface ApiRequestConfig extends AxiosRequestConfig {
   skipAuth?: boolean;
+  skipRefresh?: boolean;
 }
+
+type MobileRefreshResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  access_token_expires_in?: number;
+  statusvalue?: number;
+  code?: string;
+  message?: string;
+};
+
+const AUTH_ENDPOINTS_NO_REFRESH = [
+  ENDPOINTS.AUTH.LOGIN,
+  ENDPOINTS.AUTH.MOBILE_LOGIN,
+  ENDPOINTS.AUTH.LOGOUT,
+  ENDPOINTS.AUTH.MOBILE_LOGOUT,
+  ENDPOINTS.AUTH.REFRESH_TOKEN,
+  ENDPOINTS.AUTH.MOBILE_REFRESH,
+  ENDPOINTS.AUTH.CLEAR_USER_SESSION,
+] as const;
+
+let isRefreshing = false;
+let isLoggingOut = false;
+let refreshSubscribers: Array<(token: string) => void> = [];
 
 // --------------------------------------------------------------------------
 // Axios instance
@@ -48,13 +75,112 @@ export const apiClient: AxiosInstance = axios.create({
   },
 });
 
+function isAuthEndpointNoRefresh(url: string | undefined): boolean {
+  if (!url) return false;
+  return AUTH_ENDPOINTS_NO_REFRESH.some((path) => url.includes(path));
+}
+
+function shouldSkipTokenRefresh(config: RetryableRequestConfig | undefined): boolean {
+  if (!config) return true;
+  if (config.skipRefresh || config.skipAuth) return true;
+  if (isLoggingOut) return true;
+  return isAuthEndpointNoRefresh(config.url);
+}
+
+function onTokenRefreshed(newToken: string): void {
+  refreshSubscribers.forEach((cb) => cb(newToken));
+  refreshSubscribers = [];
+}
+
+export function getAccessTokenFromResponse(
+  response: Pick<AxiosResponse, 'headers' | 'data'>,
+): string {
+  const data = response.data as MobileRefreshResponse | MobileRefreshResponse[] | undefined;
+  const row = Array.isArray(data) ? data[0] : data;
+  if (row && typeof row === 'object' && typeof row.access_token === 'string') {
+    return row.access_token;
+  }
+
+  const headerValue = response.headers?.['x-access-token'];
+  const token =
+    headerValue ??
+    (response.headers && typeof response.headers.get === 'function'
+      ? response.headers.get('x-access-token')
+      : undefined);
+  if (Array.isArray(token)) return token[0] ?? '';
+  return typeof token === 'string' ? token : '';
+}
+
+async function persistMobileTokenPair(
+  accessToken: string,
+  refreshToken: string,
+  accessTokenExpiresIn?: number,
+): Promise<void> {
+  await SecureStore.setItemAsync(APP_CONFIG.TOKEN_KEY, accessToken);
+  await SecureStore.setItemAsync(APP_CONFIG.REFRESH_TOKEN_KEY, refreshToken);
+  if (accessTokenExpiresIn && accessTokenExpiresIn > 0) {
+    await AsyncStorage.setItem(
+      APP_CONFIG.ACCESS_TOKEN_EXPIRES_AT_KEY,
+      String(Date.now() + accessTokenExpiresIn * 1000),
+    );
+  }
+}
+
+export async function refreshStoredAuthToken(): Promise<string> {
+  const refreshToken = await SecureStore.getItemAsync(APP_CONFIG.REFRESH_TOKEN_KEY);
+  if (!refreshToken) {
+    throw new Error('No refresh token');
+  }
+
+  const response = await axios.post<MobileRefreshResponse>(
+    `${APP_CONFIG.API_BASE_PATH}${ENDPOINTS.AUTH.MOBILE_REFRESH}`,
+    { refreshToken },
+    { headers: { 'Content-Type': 'application/json' } },
+  );
+
+  const { access_token, refresh_token, access_token_expires_in } = response.data;
+  if (!access_token || !refresh_token) {
+    throw new Error('Invalid refresh response');
+  }
+
+  await persistMobileTokenPair(access_token, refresh_token, access_token_expires_in);
+  return access_token;
+}
+
+function isJwtExpiredMessage(data: unknown): boolean {
+  const msg = (data as { message?: string })?.message ?? '';
+  return /jwt expired|invalid token|token expired/i.test(msg);
+}
+
+async function forceAuthLogout(): Promise<void> {
+  if (isLoggingOut) return;
+  isLoggingOut = true;
+  isRefreshing = false;
+  refreshSubscribers = [];
+
+  try {
+    const { store } = await import('../redux/store');
+    const { clearLocalAuthSession } = await import('../redux/slices/authSlice');
+    await store.dispatch(clearLocalAuthSession());
+  } catch {
+    await Promise.allSettled([
+      SecureStore.deleteItemAsync(APP_CONFIG.TOKEN_KEY),
+      SecureStore.deleteItemAsync(APP_CONFIG.REFRESH_TOKEN_KEY),
+      SecureStore.deleteItemAsync(APP_CONFIG.SESSION_KEY),
+      AsyncStorage.removeItem(APP_CONFIG.ACCESS_TOKEN_EXPIRES_AT_KEY),
+      AsyncStorage.removeItem(APP_CONFIG.USER_KEY),
+    ]);
+  } finally {
+    isLoggingOut = false;
+  }
+}
+
 // --------------------------------------------------------------------------
 // Request interceptor – attach auth token
 // --------------------------------------------------------------------------
 
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig): Promise<InternalAxiosRequestConfig> => {
-    // Resolve the base URL dynamically for the currently active tenant
     config.baseURL = APP_CONFIG.API_BASE_PATH;
 
     const authConfig = config as RetryableRequestConfig;
@@ -66,7 +192,7 @@ apiClient.interceptors.request.use(
           config.headers['x-access-token'] = token;
         }
       } catch {
-        // SecureStore unavailable (e.g. simulator without keychain) – skip silently
+        // SecureStore unavailable – skip silently
       }
     }
 
@@ -86,62 +212,7 @@ apiClient.interceptors.request.use(
 );
 
 // --------------------------------------------------------------------------
-// Helper: refresh the auth token
-// --------------------------------------------------------------------------
-
-let isRefreshing = false;
-/** Queue of callbacks waiting for the new token */
-let refreshSubscribers: Array<(token: string) => void> = [];
-
-function onTokenRefreshed(newToken: string): void {
-  refreshSubscribers.forEach((cb) => cb(newToken));
-  refreshSubscribers = [];
-}
-
-export function getAccessTokenFromResponse(
-  response: Pick<AxiosResponse, 'headers'>,
-): string {
-  const headerValue = response.headers?.['x-access-token'];
-  const token =
-    headerValue ??
-    (response.headers && typeof response.headers.get === 'function'
-      ? response.headers.get('x-access-token')
-      : undefined);
-  if (Array.isArray(token)) return token[0] ?? '';
-  return typeof token === 'string' ? token : '';
-}
-
-export async function refreshStoredAuthToken(): Promise<string> {
-  const [token, sessionId] = await Promise.all([
-    SecureStore.getItemAsync(APP_CONFIG.TOKEN_KEY),
-    SecureStore.getItemAsync(APP_CONFIG.SESSION_KEY),
-  ]);
-
-  if (!token || !sessionId) {
-    throw new Error('No persisted session available for token refresh');
-  }
-
-  // Use a fresh axios instance to avoid interceptor loops
-  const response = await axios.post<unknown>(
-    `${APP_CONFIG.API_BASE_PATH}${ENDPOINTS.AUTH.REFRESH_TOKEN}`,
-    { sessionId },
-    {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-access-token': token,
-      },
-    },
-  );
-
-  const newToken = getAccessTokenFromResponse(response);
-  if (!newToken) throw new Error('No token in refresh response');
-
-  await SecureStore.setItemAsync(APP_CONFIG.TOKEN_KEY, newToken);
-  return newToken;
-}
-
-// --------------------------------------------------------------------------
-// Response interceptor – 401 handling + network retry
+// Response interceptor – auth refresh + network retry
 // --------------------------------------------------------------------------
 
 apiClient.interceptors.response.use(
@@ -157,25 +228,26 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as RetryableRequestConfig | undefined;
 
-    if (__DEV__) {
+    if (__DEV__ && !shouldSkipTokenRefresh(originalRequest)) {
       console.error(
         `[API] ✗ ${error.response?.status ?? 'NETWORK'} ${originalRequest?.url}`,
         error.message,
       );
     }
 
-    // ------------------------------------------------------------------
-    // 401 – attempt token refresh and retry the original request once
-    // ------------------------------------------------------------------
+    const isAuthError =
+      error.response?.status === 401 ||
+      (error.response?.status === 403 && isJwtExpiredMessage(error.response?.data));
+
     if (
-      error.response?.status === 401 &&
+      isAuthError &&
       originalRequest &&
-      !originalRequest._retry
+      !originalRequest._retry &&
+      !shouldSkipTokenRefresh(originalRequest)
     ) {
       originalRequest._retry = true;
 
       if (isRefreshing) {
-        // Another request is already refreshing – wait for it
         return new Promise<AxiosResponse>((resolve, reject) => {
           refreshSubscribers.push((newToken: string) => {
             if (originalRequest.headers) {
@@ -183,7 +255,6 @@ apiClient.interceptors.response.use(
             }
             resolve(apiClient(originalRequest));
           });
-          // If refresh ultimately fails the subscriber list will be cleared
           setTimeout(() => reject(new Error('Token refresh timeout')), 15_000);
         });
       }
@@ -201,16 +272,11 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         isRefreshing = false;
         refreshSubscribers = [];
-        // Clear stale session data so the app can force re-login.
-        await SecureStore.deleteItemAsync(APP_CONFIG.TOKEN_KEY).catch(() => {});
-        await SecureStore.deleteItemAsync(APP_CONFIG.SESSION_KEY).catch(() => {});
+        await forceAuthLogout();
         return Promise.reject(refreshError);
       }
     }
 
-    // ------------------------------------------------------------------
-    // Network error – retry once
-    // ------------------------------------------------------------------
     if (
       !error.response &&
       originalRequest &&
@@ -222,7 +288,6 @@ apiClient.interceptors.response.use(
 
       if (__DEV__) console.log('[API] Network error – retrying request…');
 
-      // Brief back-off before retry
       await new Promise((r) => setTimeout(r, 1_000));
       return apiClient(originalRequest);
     }
@@ -231,10 +296,6 @@ apiClient.interceptors.response.use(
   },
 );
 
-/**
- * Convenience wrapper: every backend endpoint uses POST.
- * Usage: `post<MyResponseType>(ENDPOINTS.AUTH.LOGIN, { memberLogin, memberPwd })`
- */
 export async function post<T>(
   endpoint: string,
   data?: unknown,

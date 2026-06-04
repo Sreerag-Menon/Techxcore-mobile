@@ -8,108 +8,8 @@ import Animated, {
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { useTheme, fontSize, fontWeight } from '@/theme';
+import { getCoverGradient, getCourseInitials } from '@/utils/courseCover';
 import type { Course } from '@/types/course.types';
-
-// ─── Cover palette ───────────────────────────────────────────────────────────
-// Intentional brand-derived covers — not random colors. Six hue families that
-// all coexist with the teal primary. Rotated by course ID so each card has its
-// own identity in the list.
-const COVER_GRADIENTS: readonly [string, string][] = [
-  ['#0F4F4A', '#082D2A'],  // deep teal  (brand home)
-  ['#1A3A5C', '#0D2035'],  // navy
-  ['#3B1F5C', '#200F35'],  // deep violet
-  ['#14402A', '#0A2418'],  // forest
-  ['#4A2E08', '#281904'],  // amber-brown
-  ['#3D1818', '#1F0C0C'],  // deep crimson
-];
-
-function getCoverGradient(seed: number): readonly [string, string] {
-  return COVER_GRADIENTS[Math.abs(seed) % COVER_GRADIENTS.length];
-}
-
-// Derives a human-readable subject abbreviation from the course name
-function getCourseInitials(name: string): string {
-  const words = name.trim().split(/\s+/);
-  if (words.length === 1) return name.slice(0, 2).toUpperCase();
-  return words
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase();
-}
-
-// ─── Progress ring (pure SVG-free, just a styled arc illusion using Views) ──
-// We use a simple segmented bar approach since RN doesn't have SVG in scope
-// for this component, and importing the full SVG stack for a progress ring
-// would be over-engineered at this card width.
-interface ProgressRingProps {
-  progress: number; // 0–100
-  size?: number;
-  strokeWidth?: number;
-  trackColor: string;
-  fillColor: string;
-}
-
-const ProgressRing = memo(function ProgressRing({
-  progress,
-  size = 44,
-  strokeWidth = 4,
-  trackColor,
-  fillColor,
-}: ProgressRingProps) {
-  const clamp = Math.min(100, Math.max(0, progress));
-
-  // Build two arc segments with View-based approach
-  // We use a pie slice trick: a circle split by a dividing View
-  const r = (size - strokeWidth) / 2;
-  const degreesForProgress = (clamp / 100) * 360;
-
-  const innerSize = size - strokeWidth * 2;
-
-  return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: trackColor,
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {/* Filled segment — conic gradient approximation via two halves */}
-      {degreesForProgress > 0 && (
-        <View
-          style={{
-            position: 'absolute',
-            width: size,
-            height: size,
-            borderRadius: size / 2,
-            backgroundColor: fillColor,
-            // Clip to show only the filled portion using rotation
-            // For < 50%: fill right half, rotate the mask
-            // For >= 50%: fill left half too
-            transform: [{ rotate: `${degreesForProgress - 90}deg` }],
-          }}
-        />
-      )}
-      {/* Center cutout — creates the donut ring */}
-      <View
-        style={{
-          width: innerSize,
-          height: innerSize,
-          borderRadius: innerSize / 2,
-          // Use theme background to create cutout effect
-          zIndex: 2,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      />
-    </View>
-  );
-});
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -162,7 +62,7 @@ const DashboardCourseCard = memo(function DashboardCourseCard({
         animatedStyle,
         {
           width: 260,
-          borderRadius: 18,
+          borderRadius: 16,
           overflow: 'hidden',
           // @ts-ignore
           borderCurve: 'continuous',
@@ -248,13 +148,13 @@ const DashboardCourseCard = memo(function DashboardCourseCard({
       {/* ── Progress bar — directly below cover, acts as a visual seam ── */}
       <View
         style={{
-          height: 3,
-          backgroundColor: isDark ? colors.border : colors.border,
+          height: 4,
+          backgroundColor: colors.border,
         }}
       >
         <View
           style={{
-            height: 3,
+            height: 4,
             width: `${progress}%`,
             backgroundColor: statusColor,
           }}
@@ -296,7 +196,7 @@ const DashboardCourseCard = memo(function DashboardCourseCard({
               flexDirection: 'row',
               alignItems: 'center',
               gap: 5,
-              backgroundColor: `${statusColor}18`,
+              backgroundColor: `${statusColor}22`,
               borderRadius: 6,
               paddingHorizontal: 8,
               paddingVertical: 3,

@@ -64,9 +64,42 @@ function extractSessionId(payload: unknown): string {
 async function clearPersistedAuth(): Promise<void> {
   await Promise.allSettled([
     secureStorage.removeItem(APP_CONFIG.TOKEN_KEY),
+    secureStorage.removeItem(APP_CONFIG.REFRESH_TOKEN_KEY),
     secureStorage.removeItem(APP_CONFIG.SESSION_KEY),
+    asyncStorage.removeItem(APP_CONFIG.ACCESS_TOKEN_EXPIRES_AT_KEY),
     asyncStorage.removeItem(APP_CONFIG.USER_KEY),
   ]);
+}
+
+function extractMobileTokens(payload: unknown): {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+} | null {
+  const data = extractItem<Record<string, unknown>>(payload);
+  if (!data) return null;
+
+  const accessToken = asString(data.access_token);
+  const refreshToken = asString(data.refresh_token);
+  const expiresIn = asNumber(data.access_token_expires_in, 0);
+
+  if (!accessToken || !refreshToken) return null;
+  return { accessToken, refreshToken, expiresIn };
+}
+
+async function persistMobileAuthTokens(
+  accessToken: string,
+  refreshToken: string,
+  expiresIn: number,
+): Promise<void> {
+  await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, accessToken);
+  await secureStorage.setItem(APP_CONFIG.REFRESH_TOKEN_KEY, refreshToken);
+  if (expiresIn > 0) {
+    await asyncStorage.setItem(
+      APP_CONFIG.ACCESS_TOKEN_EXPIRES_AT_KEY,
+      String(Date.now() + expiresIn * 1000),
+    );
+  }
 }
 
 function normalizeLoginResponse(
@@ -115,6 +148,7 @@ type LoginResponseContext = {
   token: string;
   sessionId: string;
   user: LoginResponse;
+  mobileTokens: { accessToken: string; refreshToken: string; expiresIn: number } | null;
 };
 
 function completeLoginFromResponse(
@@ -131,7 +165,9 @@ function completeLoginFromResponse(
     };
   }
 
-  const token = getAccessTokenFromResponse(response);
+  const mobileTokens = extractMobileTokens(response.data);
+  const token =
+    mobileTokens?.accessToken || getAccessTokenFromResponse(response);
   if (!isLoginSuccess(row, token)) {
     return {
       code: 'LOGIN_FAILED',
@@ -148,7 +184,7 @@ function completeLoginFromResponse(
     };
   }
 
-  return { token, sessionId, user };
+  return { token, sessionId, user, mobileTokens };
 }
 
 // --------------------------------------------------------------------------
@@ -163,16 +199,27 @@ export const loginUser = createAsyncThunk<
 >('auth/loginUser', async (credentials, { rejectWithValue }) => {
   try {
     const response = await postWithResponse<unknown>(
-      ENDPOINTS.AUTH.LOGIN,
+      ENDPOINTS.AUTH.MOBILE_LOGIN,
       credentials,
       { skipAuth: true },
     );
+    console.log(JSON.stringify(response.data, null, 2));
+  console.log('header token', response.headers['x-access-token']);
     const result = completeLoginFromResponse(response);
+    
     if ('code' in result) {
       return rejectWithValue(result);
     }
 
-    await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, result.token);
+    if (result.mobileTokens) {
+      await persistMobileAuthTokens(
+        result.mobileTokens.accessToken,
+        result.mobileTokens.refreshToken,
+        result.mobileTokens.expiresIn,
+      );
+    } else {
+      await secureStorage.setItem(APP_CONFIG.TOKEN_KEY, result.token);
+    }
     await secureStorage.setItem(APP_CONFIG.SESSION_KEY, result.sessionId);
     await asyncStorage.setItem(APP_CONFIG.USER_KEY, result.user);
     return result.user;
@@ -220,40 +267,68 @@ export const restoreSession = createAsyncThunk<
   { rejectValue: string }
 >('auth/restoreSession', async (_, { rejectWithValue }) => {
   try {
-    const [token, sessionId, cachedUser] = await Promise.all([
-      secureStorage.getItem(APP_CONFIG.TOKEN_KEY),
-      secureStorage.getItem(APP_CONFIG.SESSION_KEY),
-      asyncStorage.getItem<LoginResponse>(APP_CONFIG.USER_KEY),
-    ]);
+    const [token, refreshToken, sessionId, expiresAtRaw, cachedUser] =
+      await Promise.all([
+        secureStorage.getItem(APP_CONFIG.TOKEN_KEY),
+        secureStorage.getItem(APP_CONFIG.REFRESH_TOKEN_KEY),
+        secureStorage.getItem(APP_CONFIG.SESSION_KEY),
+        asyncStorage.getItem(APP_CONFIG.ACCESS_TOKEN_EXPIRES_AT_KEY),
+        asyncStorage.getItem<LoginResponse>(APP_CONFIG.USER_KEY),
+      ]);
 
-    if (!token || !sessionId) {
+    if (!sessionId) {
       await clearPersistedAuth();
       return rejectWithValue('No persisted session');
     }
 
+    const expiresAt = Number(expiresAtRaw);
+    const accessExpired =
+      !token || (Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Date.now());
+
+    if (accessExpired) {
+      if (!refreshToken) {
+        await clearPersistedAuth();
+        return rejectWithValue('No refresh token');
+      }
+      try {
+        await refreshStoredAuthToken();
+      } catch {
+        await clearPersistedAuth();
+        return rejectWithValue('Unable to refresh session');
+      }
+    } else if (!token) {
+      await clearPersistedAuth();
+      return rejectWithValue('No persisted session');
+    }
+
+    const activeToken =
+      (await secureStorage.getItem(APP_CONFIG.TOKEN_KEY)) || token || '';
+
     const hydratedCachedUser = cachedUser
       ? {
           ...cachedUser,
-          token,
+          token: activeToken,
           session_id: cachedUser.session_id || sessionId,
         }
       : null;
 
-    // Optionally fetch fresh session info
     try {
       const response = await post<unknown>(ENDPOINTS.AUTH.SESSION_INFO, { sessionId });
-      const user = normalizeLoginResponse(response, { token, sessionId });
+      const user = normalizeLoginResponse(response, {
+        token: activeToken,
+        sessionId,
+      });
 
       if (user) {
         await asyncStorage.setItem(APP_CONFIG.USER_KEY, user);
-        return { token, user };
+        return { token: activeToken, user };
       }
     } catch {
       // Network/transient restore failure – fall back to the cached user if available.
     }
 
     if (hydratedCachedUser) {
-      return { token, user: hydratedCachedUser };
+      return { token: activeToken, user: hydratedCachedUser };
     }
 
     await clearPersistedAuth();
@@ -263,12 +338,29 @@ export const restoreSession = createAsyncThunk<
   }
 });
 
-/** Logout → clear SecureStore and reset state */
+/** Clear local session only (no API). Used when tokens are already invalid. */
+export const clearLocalAuthSession = createAsyncThunk<void, void>(
+  'auth/clearLocalAuthSession',
+  async () => {
+    await clearPersistedAuth();
+  },
+);
+
+/** Logout → revoke refresh token on server when possible, then clear local state */
 export const logoutUser = createAsyncThunk<void, void, { rejectValue: string }>(
   'auth/logoutUser',
-  async (_, { rejectWithValue }) => {
+  async () => {
     try {
-      await post(ENDPOINTS.AUTH.LOGOUT, {});
+      const refreshToken = await secureStorage.getItem(APP_CONFIG.REFRESH_TOKEN_KEY);
+      if (refreshToken) {
+        await post(
+          ENDPOINTS.AUTH.MOBILE_LOGOUT,
+          { refreshToken },
+          { skipAuth: true, skipRefresh: true },
+        );
+      }
+      // Do not call /member_logout from mobile — it requires a valid JWT and
+      // causes a 403 → refresh → logout loop when the access token is expired.
     } catch {
       // Best-effort – continue with local cleanup even if the server call fails
     } finally {
@@ -353,25 +445,24 @@ const authSlice = createSlice({
         state.isAuthenticated = false;
       });
 
-    // ---- logoutUser ----
+    // ---- logoutUser / clearLocalAuthSession ----
+    const resetAuthState = (state: AuthState) => {
+      state.isLoading = false;
+      state.token = null;
+      state.user = null;
+      state.isAuthenticated = false;
+      state.error = null;
+      state.isRestoringSession = false;
+    };
+
     builder
       .addCase(logoutUser.pending, (state) => {
         state.isLoading = true;
       })
-      .addCase(logoutUser.fulfilled, (state) => {
-        state.isLoading = false;
-        state.token = null;
-        state.user = null;
-        state.isAuthenticated = false;
-        state.error = null;
-      })
-      .addCase(logoutUser.rejected, (state) => {
-        // Still clear local state even if API call failed
-        state.isLoading = false;
-        state.token = null;
-        state.user = null;
-        state.isAuthenticated = false;
-      });
+      .addCase(logoutUser.fulfilled, resetAuthState)
+      .addCase(logoutUser.rejected, resetAuthState)
+      .addCase(clearLocalAuthSession.fulfilled, resetAuthState)
+      .addCase(clearLocalAuthSession.rejected, resetAuthState);
 
     // ---- refreshToken ----
     builder

@@ -1,11 +1,16 @@
 type UnknownRecord = Record<string, unknown>;
 
-import type {
-  CourseChapter,
-  CourseHier,
-  CourseModule,
-  CourseModuleStatus,
+import {
+  HTML_EDITOR_FORMAT,
+  HTML_EDITOR_MODULE_TYPE,
+  type CourseChapter,
+  type CourseHier,
+  type CourseHtmlEditorModule,
+  type CourseHtmlLikeModule,
+  type CourseModule,
+  type CourseModuleStatus,
 } from '../types/course.types';
+import { resolveHtmlContentRenderMode } from '../utils/htmlContent';
 
 const DEFAULT_KEYS = [
   'data',
@@ -192,6 +197,45 @@ function moduleBase(raw: UnknownRecord, chapterId: number, contentId: number) {
   } as const;
 }
 
+function htmlFormatFlags(
+  format: string,
+  isUrlOnly: boolean,
+  isHtmlOnly: boolean,
+  isEmbedOnly: boolean,
+) {
+  return { format, isUrlOnly, isHtmlOnly, isEmbedOnly };
+}
+
+function toHtmlLikeModule(
+  base: ReturnType<typeof moduleBase>,
+  type: CourseHtmlLikeModule['type'],
+  url: string,
+  flags: Parameters<typeof resolveHtmlContentRenderMode>[0],
+): CourseHtmlLikeModule {
+  return {
+    ...base,
+    type,
+    url,
+    contentRenderMode: resolveHtmlContentRenderMode(flags, url),
+  };
+}
+
+/** HTMLEditor inline HTML body comes from API `browse_url` (not `content_url` / S3 resolve). */
+function toHtmlEditorModule(
+  base: ReturnType<typeof moduleBase>,
+  browseUrl: string,
+): CourseHtmlEditorModule | null {
+  const url = browseUrl.trim();
+  if (!url) return null;
+
+  return {
+    ...base,
+    type: HTML_EDITOR_MODULE_TYPE,
+    url,
+    contentRenderMode: 'inline',
+  };
+}
+
 /** Map trainee playback row (web `mkModuleList` / API-enriched `format` + URLs). */
 function toModuleFromPlaybackRow(raw: UnknownRecord, chapterId: number): CourseModule | null {
   const contentId = asNumber(
@@ -227,16 +271,30 @@ function toModuleFromPlaybackRow(raw: UnknownRecord, chapterId: number): CourseM
     return { ...base, type: 'scorm', manifestUrl };
   }
 
+  if (format === HTML_EDITOR_FORMAT || isHtmlOnly) {
+    return toHtmlEditorModule(base, browseUrl);
+  }
+
   if (format === 'embedded' || (isUrlOnly && isEmbedOnly)) {
     const url = contentUrl || browseUrl;
     if (!url) return null;
-    return { ...base, type: 'embedded', url };
+    return toHtmlLikeModule(
+      base,
+      'embedded',
+      url,
+      htmlFormatFlags(format || 'embedded', isUrlOnly, isHtmlOnly, isEmbedOnly),
+    );
   }
 
   if (format === 'html' || (isUrlOnly && !isEmbedOnly && browseUrl)) {
     const url = contentUrl || browseUrl || videoUrl;
     if (!url) return null;
-    return { ...base, type: 'html', url };
+    return toHtmlLikeModule(
+      base,
+      'html',
+      url,
+      htmlFormatFlags(format || 'html', isUrlOnly, isHtmlOnly, isEmbedOnly),
+    );
   }
 
   if (format === 'pdf' || isTextOnly) {
@@ -248,13 +306,12 @@ function toModuleFromPlaybackRow(raw: UnknownRecord, chapterId: number): CourseM
   if (format === 'ppteditor' || isPpt) {
     const url = contentUrl || browseUrl;
     if (!url) return null;
-    return { ...base, type: 'ppt', url };
-  }
-
-  if (format === 'htmleditor' || isHtmlOnly) {
-    const url = contentUrl || browseUrl;
-    if (!url) return null;
-    return { ...base, type: 'html', url };
+    return toHtmlLikeModule(
+      base,
+      'ppt',
+      url,
+      htmlFormatFlags(format || 'ppteditor', isUrlOnly, isHtmlOnly, isEmbedOnly),
+    );
   }
 
   if (format === 'video' || (videoUrl && videoUrl.length > 0)) {
@@ -270,7 +327,7 @@ function toModuleFromPlaybackRow(raw: UnknownRecord, chapterId: number): CourseM
   }
 
   if (contentUrl) {
-    return { ...base, type: 'html', url: contentUrl };
+    return toHtmlLikeModule(base, 'html', contentUrl, htmlFormatFlags(format, isUrlOnly, isHtmlOnly, isEmbedOnly));
   }
 
   return null;
@@ -332,12 +389,34 @@ function toModule(raw: UnknownRecord, chapterId: number): CourseModule | null {
 
   if (rawType === 'document') {
     if (!url) return null;
-    return { ...base, type: 'html', url };
+    const format = asString(raw.format, '').trim().toLowerCase();
+    return toHtmlLikeModule(
+      base,
+      'html',
+      url,
+      htmlFormatFlags(
+        format,
+        asBoolean(raw.is_url_only, false),
+        asBoolean(raw.is_html_only, false),
+        asBoolean(raw.is_embedurl_only, false),
+      ),
+    );
   }
 
   if (rawType === 'html' || rawType === 'embedded' || rawType === 'ppt') {
     if (!url) return null;
-    return { ...base, type: rawType, url };
+    const format = asString(raw.format, rawType).trim().toLowerCase();
+    return toHtmlLikeModule(
+      base,
+      rawType,
+      url,
+      htmlFormatFlags(
+        format,
+        asBoolean(raw.is_url_only, false),
+        asBoolean(raw.is_html_only, false),
+        asBoolean(raw.is_embedurl_only, false),
+      ),
+    );
   }
 
   return null;

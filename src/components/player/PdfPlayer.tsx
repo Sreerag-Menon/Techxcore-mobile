@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import * as FileSystem from 'expo-file-system';
 
 import { useTheme } from '../../theme';
+import {
+  downloadUrlToCache,
+  getCacheFileUri,
+} from '../../utils/expoFileCache';
 import { PdfWebView } from './PdfWebView';
 
 export type PdfPlayerProps = {
@@ -20,17 +23,10 @@ export function PdfPlayer({ url, onError }: PdfPlayerProps) {
   const [localUri, setLocalUri] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
-  const cachePath = useMemo(() => {
-    const base =
-      // expo-file-system SDK54 exposes Paths.cache/document; `uri` is present at runtime.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((FileSystem.Paths.cache as any).uri as string | undefined) ??
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((FileSystem.Paths.document as any).uri as string | undefined) ??
-      '';
-    if (!base) return '';
-    return `${base}pdf_${safeFileName(url)}.pdf`;
-  }, [url]);
+  const cacheFileName = useMemo(
+    () => (url ? `pdf_${safeFileName(url)}.pdf` : ''),
+    [url],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -44,20 +40,20 @@ export function PdfPlayer({ url, onError }: PdfPlayerProps) {
           return;
         }
 
-        if (!cachePath) {
+        if (!cacheFileName) {
           setLocalUri(url);
           return;
         }
 
-        setIsDownloading(true);
-        const info = await FileSystem.getInfoAsync(cachePath);
-        if (info.exists && info.uri) {
-          if (isMounted) setLocalUri(info.uri);
+        const cachedUri = getCacheFileUri(cacheFileName);
+        if (cachedUri) {
+          if (isMounted) setLocalUri(cachedUri);
           return;
         }
 
-        const result = await FileSystem.downloadAsync(url, cachePath);
-        if (isMounted) setLocalUri(result.uri);
+        setIsDownloading(true);
+        const downloadedUri = await downloadUrlToCache(cacheFileName, url);
+        if (isMounted) setLocalUri(downloadedUri ?? url);
       } catch (e) {
         onError?.(e instanceof Error ? e.message : 'Failed to load PDF');
         setLocalUri(url);
@@ -70,7 +66,7 @@ export function PdfPlayer({ url, onError }: PdfPlayerProps) {
     return () => {
       isMounted = false;
     };
-  }, [cachePath, onError, url]);
+  }, [cacheFileName, onError, url]);
 
   if (!localUri) {
     return (

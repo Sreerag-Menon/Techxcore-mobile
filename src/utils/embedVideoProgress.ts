@@ -1,8 +1,26 @@
+/** Matches app.json ios.bundleIdentifier / android.package (YouTube embed identity). */
+export const WEBVIEW_EMBED_APP_ID = 'com.aai.mobile';
+
+/** Origin sent to YouTube/Vimeo embed APIs via playerVars and WebView baseUrl. */
+export const WEBVIEW_EMBED_ORIGIN = `https://${WEBVIEW_EMBED_APP_ID}`;
+
+/** baseUrl for react-native-webview inline HTML (sets HTTP Referer per Google embed policy). */
+export const WEBVIEW_EMBED_BASE_URL = `${WEBVIEW_EMBED_ORIGIN}/`;
+
+export type EmbedWebViewMessage =
+  | { type: 'progress'; seconds: number }
+  | { type: 'error'; code: number }
+  | { type: 'ended' };
+
 /** HTML shell for YouTube iframe API with progress postMessage to React Native. */
 export function buildYoutubeProgressHtml(videoId: string): string {
+  const origin = WEBVIEW_EMBED_ORIGIN;
   return `<!DOCTYPE html>
 <html>
-<head><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+</head>
 <body style="margin:0;background:#000;">
 <div id="player"></div>
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -17,14 +35,34 @@ export function buildYoutubeProgressHtml(videoId: string): string {
       }
     } catch (e) {}
   }
+  function postToApp(payload) {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+    }
+  }
   function onYouTubeIframeAPIReady() {
     player = new YT.Player('player', {
       width: '100%',
       height: '100%',
       videoId: '${videoId}',
-      playerVars: { playsinline: 1, rel: 0 },
+      playerVars: {
+        playsinline: 1,
+        rel: 0,
+        origin: '${origin}',
+        widget_referrer: '${origin}'
+      },
       events: {
-        onStateChange: function() { report(); }
+        onStateChange: function(event) {
+          report();
+          try {
+            if (window.YT && event.data === window.YT.PlayerState.ENDED) {
+              postToApp({ type: 'ended' });
+            }
+          } catch (e) {}
+        },
+        onError: function(event) {
+          postToApp({ type: 'error', code: event.data });
+        }
       }
     });
     setInterval(report, 3000);
@@ -38,7 +76,10 @@ export function buildYoutubeProgressHtml(videoId: string): string {
 export function buildVimeoProgressHtml(videoId: string): string {
   return `<!DOCTYPE html>
 <html>
-<head><meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+</head>
 <body style="margin:0;background:#000;">
 <div id="vimeo"></div>
 <script src="https://player.vimeo.com/api/player.js"></script>
@@ -73,14 +114,34 @@ export function extractVimeoVideoId(url: string): string | null {
   return match?.[1] ?? null;
 }
 
-export function parseEmbedProgressMessage(raw: string): number | null {
+export function parseEmbedWebViewMessage(raw: string): EmbedWebViewMessage | null {
   try {
-    const payload = JSON.parse(raw) as { type?: string; seconds?: number };
+    const payload = JSON.parse(raw) as {
+      type?: string;
+      seconds?: number;
+      code?: number;
+    };
     if (payload.type === 'progress' && typeof payload.seconds === 'number') {
-      return Number.isFinite(payload.seconds) ? payload.seconds : null;
+      const seconds = payload.seconds;
+      return Number.isFinite(seconds) ? { type: 'progress', seconds } : null;
+    }
+    if (payload.type === 'error' && typeof payload.code === 'number') {
+      return { type: 'error', code: payload.code };
+    }
+    if (payload.type === 'ended') {
+      return { type: 'ended' };
     }
   } catch {
     return null;
+  }
+  return null;
+}
+
+/** @deprecated Prefer parseEmbedWebViewMessage */
+export function parseEmbedProgressMessage(raw: string): number | null {
+  const message = parseEmbedWebViewMessage(raw);
+  if (message?.type === 'progress') {
+    return message.seconds;
   }
   return null;
 }

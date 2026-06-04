@@ -59,10 +59,17 @@ export interface CourseContent {
 
 export type CourseModuleStatus = 'not_started' | 'in_progress' | 'completed';
 
+/** Web ChapterInner `type === "HTMLEditor"` — canonical mobile module `type`. */
+export const HTML_EDITOR_MODULE_TYPE = 'HTMLeditor' as const;
+
+/** API `format` after `.toLowerCase()` (web sends `HTMLEditor`). */
+export const HTML_EDITOR_FORMAT = 'htmleditor' as const;
+
 export type CourseModuleType =
   | 'video'
   | 'pdf'
   | 'html'
+  | typeof HTML_EDITOR_MODULE_TYPE
   | 'embedded'
   | 'scorm'
   | 'ppt'
@@ -106,9 +113,20 @@ export type CourseAudioModule = CourseModuleBase & {
   url: string;
 };
 
+/** How HtmlPlayer loads content: inline HTML body vs navigable URL. */
+export type HtmlContentRenderMode = 'inline' | 'uri';
+
 export type CourseHtmlLikeModule = CourseModuleBase & {
   type: 'html' | 'embedded' | 'ppt';
   url: string;
+  contentRenderMode: HtmlContentRenderMode;
+};
+
+/** Inline HTML body from HTMLEditor (web `type === "HTMLEditor"`). */
+export type CourseHtmlEditorModule = CourseModuleBase & {
+  type: typeof HTML_EDITOR_MODULE_TYPE;
+  url: string;
+  contentRenderMode: 'inline';
 };
 
 export type CourseScormModule = CourseModuleBase & {
@@ -126,6 +144,7 @@ export type CourseModule =
   | CoursePdfModule
   | CourseAudioModule
   | CourseHtmlLikeModule
+  | CourseHtmlEditorModule
   | CourseScormModule
   | CourseAssessmentModule;
 
