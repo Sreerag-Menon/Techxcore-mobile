@@ -1,28 +1,47 @@
-import { useMemo, useRef } from 'react';
-import { Pressable, Text, View } from 'react-native';
 import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetSectionList,
-} from '@gorhom/bottom-sheet';
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+} from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { BottomSheetSectionList } from '@gorhom/bottom-sheet';
 
 import type { CourseChapter, CourseModule } from '../../types/course.types';
 import { useTheme } from '../../theme';
+import {
+  GlassBottomSheetModal,
+  type GlassBottomSheetModalHandle,
+} from '../ui/GlassBottomSheetModal';
+
+export type CourseContentSidebarHandle = {
+  open: () => void;
+};
 
 export type CourseContentSidebarProps = {
   chapters: CourseChapter[];
   activeContentId: number | null;
   onSelectModule: (module: CourseModule) => void;
+  /** Course publish setting: enforce sequential module order. */
+  courseSequential?: boolean;
+  /** When false, only the bottom sheet is rendered (no floating FAB). */
+  showFloatingButton?: boolean;
 };
 
-export function CourseContentSidebar({
-  chapters,
-  activeContentId,
-  onSelectModule,
-}: CourseContentSidebarProps) {
+export const CourseContentSidebar = forwardRef<
+  CourseContentSidebarHandle,
+  CourseContentSidebarProps
+>(function CourseContentSidebar(
+  { chapters, activeContentId, onSelectModule, courseSequential = false, showFloatingButton = true },
+  ref,
+) {
   const { colors } = useTheme();
-  const sheetRef = useRef<BottomSheetModal>(null);
+  const sheetRef = useRef<GlassBottomSheetModalHandle>(null);
   const snapPoints = useMemo(() => ['35%', '70%'], []);
+
+  useImperativeHandle(ref, () => ({
+    open: () => sheetRef.current?.open(),
+  }));
 
   const sections = useMemo(
     () =>
@@ -35,41 +54,35 @@ export function CourseContentSidebar({
 
   return (
     <>
-      <Pressable
-        onPress={() => sheetRef.current?.present()}
-        style={{
-          position: 'absolute',
-          right: 18,
-          bottom: 18,
-          backgroundColor: colors.primary,
-          borderRadius: 999,
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          shadowColor: '#000',
-          shadowOpacity: 0.25,
-          shadowRadius: 12,
-          elevation: 5,
-        }}
-      >
-        <Text style={{ color: '#fff', fontWeight: '800' }}>Contents</Text>
-      </Pressable>
+      {showFloatingButton ? (
+        <Pressable
+          onPress={() => sheetRef.current?.open()}
+          style={{
+            position: 'absolute',
+            right: 18,
+            bottom: 18,
+            backgroundColor: colors.primary,
+            borderRadius: 999,
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            shadowColor: '#000',
+            shadowOpacity: 0.25,
+            shadowRadius: 12,
+            elevation: 5,
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '800' }}>Contents</Text>
+        </Pressable>
+      ) : null}
 
-      <BottomSheetModal
-        ref={sheetRef}
-        snapPoints={snapPoints}
-        backdropComponent={(props) => (
-          <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
-        )}
-        backgroundStyle={{ backgroundColor: colors.surface }}
-        handleIndicatorStyle={{ backgroundColor: colors.border }}
-      >
+      <GlassBottomSheetModal ref={sheetRef} snapPoints={snapPoints}>
         <BottomSheetSectionList
           sections={sections}
           keyExtractor={(item) => String(item.contentId)}
           stickySectionHeadersEnabled={false}
           contentContainerStyle={{ paddingBottom: 28 }}
           renderSectionHeader={({ section }) => (
-            <View style={{ paddingHorizontal: 16, paddingVertical: 10 }}>
+            <View style={{ paddingHorizontal: 20, paddingVertical: 10 }}>
               <Text style={{ color: colors.text, fontWeight: '800' }}>{section.title}</Text>
             </View>
           )}
@@ -78,18 +91,22 @@ export function CourseContentSidebar({
             const flatModules = sections.flatMap((s) => s.data);
             const flatIndex = flatModules.findIndex((m) => m.contentId === item.contentId);
             const prev = flatIndex > 0 ? flatModules[flatIndex - 1] : null;
-            const isLocked =
-              Boolean(item.sequential) && prev != null && prev.status !== 'completed';
+            const isSequentialLocked =
+              (courseSequential || Boolean(item.sequential)) &&
+              prev != null &&
+              prev.status !== 'completed';
+            const isDripLocked = item.released === false;
+            const isLocked = isSequentialLocked || isDripLocked;
 
             return (
               <Pressable
                 onPress={() => {
                   if (isLocked) return;
                   onSelectModule(item);
-                  sheetRef.current?.dismiss();
+                  sheetRef.current?.close();
                 }}
                 style={{
-                  marginHorizontal: 16,
+                  marginHorizontal: 20,
                   marginBottom: 10,
                   borderRadius: 14,
                   borderWidth: 1,
@@ -113,7 +130,11 @@ export function CourseContentSidebar({
                     <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
                       {item.type.toUpperCase()}
                       {item.status ? ` · ${item.status.replace('_', ' ')}` : ''}
-                      {isLocked ? ' · LOCKED' : ''}
+                      {isDripLocked && item.scheduledOn
+                        ? ` · Available ${item.scheduledOn}`
+                        : isLocked
+                          ? ' · LOCKED'
+                          : ''}
                     </Text>
                   </View>
                   <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
@@ -124,8 +145,7 @@ export function CourseContentSidebar({
             );
           }}
         />
-      </BottomSheetModal>
+      </GlassBottomSheetModal>
     </>
   );
-}
-
+});

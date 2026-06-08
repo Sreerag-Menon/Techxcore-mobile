@@ -17,7 +17,7 @@ import { CourseListCard } from '@/components/dashboard';
 import { getFloatingTabBarScrollPadding, TabPill } from '@/components/ui';
 import { useResponsive } from '@/hooks';
 import { useAppDispatch, useAppSelector } from '@/redux';
-import { fetchCourses } from '@/redux/slices/courseSlice';
+import { fetchCourses, fetchStudentClasses } from '@/redux/slices/courseSlice';
 import { navigateToCourse } from '@/services/courseNavigation';
 import { fontSize, fontWeight, useTheme } from '@/theme';
 import type { Course } from '@/types/course.types';
@@ -78,27 +78,33 @@ export default function CoursesScreen() {
   const tabBarPadding = getFloatingTabBarScrollPadding(insets.bottom);
   const { horizontalPadding } = useResponsive();
 
-  const { courses, isLoading, error } = useAppSelector((state) => state.course);
+  const { courses, classFilterOptions, isLoading, error } = useAppSelector(
+    (state) => state.course,
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<CourseFilter>('all');
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const loadCourses = useCallback(async () => {
-    await dispatch(fetchCourses()).unwrap();
+  const loadCatalog = useCallback(async () => {
+    await Promise.all([
+      dispatch(fetchStudentClasses()).unwrap().catch(() => {}),
+      dispatch(fetchCourses()).unwrap(),
+    ]);
   }, [dispatch]);
 
   useEffect(() => {
-    void loadCourses();
-  }, [loadCourses]);
+    void loadCatalog();
+  }, [loadCatalog]);
 
   const onRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await loadCourses();
+      await loadCatalog();
     } finally {
       setIsRefreshing(false);
     }
-  }, [loadCourses]);
+  }, [loadCatalog]);
 
   const statusCounts = useMemo(
     () => ({
@@ -124,9 +130,13 @@ export default function CoursesScreen() {
       const matchesFilter =
         activeFilter === 'all' ? true : course.status === activeFilter;
 
-      return matchesSearch && matchesFilter;
+      const matchesClass =
+        selectedClass == null ||
+        (course.classname != null && course.classname === selectedClass);
+
+      return matchesSearch && matchesFilter && matchesClass;
     });
-  }, [activeFilter, courses, searchQuery]);
+  }, [activeFilter, courses, searchQuery, selectedClass]);
 
   const hasSearch = searchQuery.trim().length > 0;
   const emptyCopy = getEmptyStateCopy(activeFilter, hasSearch);
@@ -178,6 +188,40 @@ export default function CoursesScreen() {
         ))}
       </ScrollView>
 
+      {classFilterOptions.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ gap: 8, paddingRight: 4 }}
+        >
+          <TabPill
+            label="All classes"
+            isActive={selectedClass == null}
+            onPress={() => setSelectedClass(null)}
+            activeColor={colors.primary}
+            activeBg={pillActiveBg}
+            inactiveColor={colors.textSecondary}
+            inactiveBg={pillInactiveBg}
+            borderColor={`${colors.primary}40`}
+            inactiveBorder={colors.border}
+          />
+          {classFilterOptions.map((className) => (
+            <TabPill
+              key={className}
+              label={className}
+              isActive={selectedClass === className}
+              onPress={() => setSelectedClass(className)}
+              activeColor={colors.primary}
+              activeBg={pillActiveBg}
+              inactiveColor={colors.textSecondary}
+              inactiveBg={pillInactiveBg}
+              borderColor={`${colors.primary}40`}
+              inactiveBorder={colors.border}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+
       {!isLoading || courses.length > 0 ? (
         <View
           style={{
@@ -208,7 +252,7 @@ export default function CoursesScreen() {
           title="Courses unavailable"
           message={error}
           onRetry={() => {
-            void loadCourses();
+            void loadCatalog();
           }}
         />
       ) : null}

@@ -1,137 +1,151 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { BottomSheetBackdrop, BottomSheetModal } from '@gorhom/bottom-sheet';
 
 import { useTheme } from '../../theme';
 import { asyncStorage } from '../../utils/storage';
 import { useSubmitCourseRatingMutation } from '../../redux/api/playerApi';
+import {
+  GlassBottomSheetModal,
+  type GlassBottomSheetModalHandle,
+} from '../ui/GlassBottomSheetModal';
+
+export type CourseRatingHandle = {
+  open: () => void;
+};
 
 export type CourseRatingProps = {
   coursePublishId: number;
   shouldPrompt?: boolean;
+  showFloatingButton?: boolean;
 };
 
-export function CourseRating({ coursePublishId, shouldPrompt }: CourseRatingProps) {
-  const { colors } = useTheme();
-  const sheetRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ['40%'], []);
-  const [rating, setRating] = useState(0);
-  const [comment, setComment] = useState('');
+export const CourseRating = forwardRef<CourseRatingHandle, CourseRatingProps>(
+  function CourseRating({ coursePublishId, shouldPrompt, showFloatingButton = true }, ref) {
+    const { colors } = useTheme();
+    const sheetRef = useRef<GlassBottomSheetModalHandle>(null);
+    const snapPoints = useMemo(() => ['40%'], []);
+    const [rating, setRating] = useState(0);
+    const [comment, setComment] = useState('');
 
-  const [submit, submitState] = useSubmitCourseRatingMutation();
+    const [submit, submitState] = useSubmitCourseRatingMutation();
 
-  useEffect(() => {
-    if (!shouldPrompt) return;
-    const key = `rating:prompted:${coursePublishId}`;
+    useImperativeHandle(ref, () => ({
+      open: () => sheetRef.current?.open(),
+    }));
 
-    void (async () => {
-      const prompted = await asyncStorage.getItem<boolean>(key);
-      if (prompted) return;
-      await asyncStorage.setItem(key, true);
-      sheetRef.current?.present();
-    })();
-  }, [coursePublishId, shouldPrompt]);
+    useEffect(() => {
+      if (!shouldPrompt) return;
+      const key = `rating:prompted:${coursePublishId}`;
 
-  return (
-    <>
-      <Pressable
-        onPress={() => sheetRef.current?.present()}
-        style={{
-          position: 'absolute',
-          right: 18,
-          bottom: 74,
-          backgroundColor: colors.warning,
-          borderRadius: 999,
-          paddingHorizontal: 14,
-          paddingVertical: 10,
-          shadowColor: '#000',
-          shadowOpacity: 0.22,
-          shadowRadius: 12,
-          elevation: 5,
-        }}
-      >
-        <Text style={{ color: colors.text, fontWeight: '900' }}>Rate</Text>
-      </Pressable>
+      void (async () => {
+        const prompted = await asyncStorage.getItem<boolean>(key);
+        if (prompted) return;
+        await asyncStorage.setItem(key, true);
+        sheetRef.current?.open();
+      })();
+    }, [coursePublishId, shouldPrompt]);
 
-      <BottomSheetModal
-        ref={sheetRef}
-        snapPoints={snapPoints}
-        backdropComponent={(props) => (
-          <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />
-        )}
-        backgroundStyle={{ backgroundColor: colors.surface }}
-        handleIndicatorStyle={{ backgroundColor: colors.border }}
-      >
-        <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 12 }}>
-          <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>
-            Rate this course
-          </Text>
+    return (
+      <>
+        {showFloatingButton ? (
+          <Pressable
+            onPress={() => sheetRef.current?.open()}
+            style={{
+              position: 'absolute',
+              right: 18,
+              bottom: 74,
+              backgroundColor: colors.warning,
+              borderRadius: 999,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              shadowColor: '#000',
+              shadowOpacity: 0.22,
+              shadowRadius: 12,
+              elevation: 5,
+            }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '900' }}>Rate</Text>
+          </Pressable>
+        ) : null}
 
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {Array.from({ length: 5 }).map((_, idx) => {
-              const value = idx + 1;
-              const active = rating >= value;
-              return (
+        <GlassBottomSheetModal ref={sheetRef} snapPoints={snapPoints}>
+          <View style={{ paddingHorizontal: 20, paddingBottom: 16, gap: 12 }}>
+            <Text style={{ color: colors.text, fontWeight: '900', fontSize: 16 }}>
+              Rate this course
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {[1, 2, 3, 4, 5].map((value) => (
                 <Pressable
                   key={value}
                   onPress={() => setRating(value)}
                   style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 12,
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: active ? colors.primary : colors.background,
+                    backgroundColor: rating >= value ? colors.warning : colors.background,
                     borderWidth: 1,
-                    borderColor: active ? colors.primary : colors.border,
+                    borderColor: colors.border,
                   }}
                 >
-                  <Text style={{ color: active ? '#fff' : colors.text, fontWeight: '900' }}>
+                  <Text style={{ color: rating >= value ? colors.text : colors.textSecondary }}>
                     {value}
                   </Text>
                 </Pressable>
-              );
-            })}
+              ))}
+            </View>
+
+            <TextInput
+              value={comment}
+              onChangeText={setComment}
+              placeholder="Optional comment…"
+              placeholderTextColor={colors.textSecondary}
+              multiline
+              style={{
+                minHeight: 90,
+                borderRadius: 14,
+                borderWidth: 1,
+                borderColor: colors.border,
+                padding: 12,
+                color: colors.text,
+                backgroundColor: colors.background,
+              }}
+            />
+
+            <Pressable
+              onPress={() => {
+                if (!rating) return;
+                void submit({
+                  coursePublishId,
+                  rating,
+                  comment: comment.trim() || undefined,
+                }).then(() => sheetRef.current?.close());
+              }}
+              disabled={submitState.isLoading || rating === 0}
+              style={{
+                backgroundColor: rating === 0 ? colors.border : colors.primary,
+                borderRadius: 14,
+                paddingVertical: 12,
+                alignItems: 'center',
+                opacity: submitState.isLoading ? 0.7 : 1,
+              }}
+            >
+              <Text style={{ color: '#fff', fontWeight: '900' }}>
+                {submitState.isLoading ? 'Submitting…' : 'Submit'}
+              </Text>
+            </Pressable>
           </View>
-
-          <TextInput
-            value={comment}
-            onChangeText={setComment}
-            placeholder="Optional comment…"
-            placeholderTextColor={colors.textSecondary}
-            style={{
-              borderRadius: 14,
-              borderWidth: 1,
-              borderColor: colors.border,
-              paddingHorizontal: 12,
-              paddingVertical: 10,
-              color: colors.text,
-              backgroundColor: colors.background,
-            }}
-          />
-
-          <Pressable
-            onPress={() => {
-              if (!rating) return;
-              void submit({ coursePublishId, rating, comment: comment.trim() || undefined }).then(
-                () => sheetRef.current?.dismiss(),
-              );
-            }}
-            disabled={submitState.isLoading || rating === 0}
-            style={{
-              backgroundColor: rating === 0 ? colors.border : colors.primary,
-              borderRadius: 14,
-              paddingVertical: 12,
-              alignItems: 'center',
-              opacity: submitState.isLoading ? 0.7 : 1,
-            }}
-          >
-            <Text style={{ color: '#fff', fontWeight: '900' }}>
-              {submitState.isLoading ? 'Submitting…' : 'Submit'}
-            </Text>
-          </Pressable>
-        </View>
-      </BottomSheetModal>
-    </>
-  );
-}
+        </GlassBottomSheetModal>
+      </>
+    );
+  },
+);

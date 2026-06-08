@@ -92,6 +92,7 @@ export function mapCoursePublishingToCourse(row: unknown): Course | null {
     completed_modules,
     status: deriveCourseStatus(progress_percentage),
     category: asString(row.currname, '').trim() || undefined,
+    classname: asString(row.classname ?? row.class_name, '').trim() || undefined,
     course_description: description || undefined,
     duration: duration || undefined,
   };

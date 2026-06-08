@@ -10,26 +10,66 @@ export const WEBVIEW_EMBED_BASE_URL = `${WEBVIEW_EMBED_ORIGIN}/`;
 export type EmbedWebViewMessage =
   | { type: 'progress'; seconds: number }
   | { type: 'error'; code: number }
-  | { type: 'ended' };
+  | { type: 'ended' }
+  | { type: 'stateChange'; isPlaying: boolean };
+
+export type YoutubeEmbedOptions = {
+  seekable?: boolean;
+  initialSeekSeconds?: number;
+};
 
 /** HTML shell for YouTube iframe API with progress postMessage to React Native. */
-export function buildYoutubeProgressHtml(videoId: string): string {
+export function buildYoutubeProgressHtml(
+  videoId: string,
+  options: YoutubeEmbedOptions = {},
+): string {
   const origin = WEBVIEW_EMBED_ORIGIN;
+  const seekable = options.seekable !== false;
+  const initialSeek = Math.max(0, options.initialSeekSeconds ?? 0);
+  const playerVars = seekable
+    ? `playsinline: 1, rel: 0, origin: '${origin}', widget_referrer: '${origin}'`
+    : `playsinline: 1, rel: 0, controls: 0, disablekb: 1, origin: '${origin}', widget_referrer: '${origin}'`;
+
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+    #player {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+  </style>
 </head>
-<body style="margin:0;background:#000;">
+<body>
 <div id="player"></div>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script>
   var player;
+  var seekable = ${seekable ? 'true' : 'false'};
+  var maxViewedSeconds = ${initialSeek};
+  var initialSeekSeconds = ${initialSeek};
   function report() {
     try {
       if (!player || !player.getCurrentTime) return;
       var seconds = player.getCurrentTime();
+      if (!seekable && seconds > maxViewedSeconds + 1.5) {
+        player.seekTo(maxViewedSeconds, false);
+        seconds = maxViewedSeconds;
+      } else if (seconds > maxViewedSeconds) {
+        maxViewedSeconds = seconds;
+      }
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'progress', seconds: seconds }));
       }
@@ -45,18 +85,22 @@ export function buildYoutubeProgressHtml(videoId: string): string {
       width: '100%',
       height: '100%',
       videoId: '${videoId}',
-      playerVars: {
-        playsinline: 1,
-        rel: 0,
-        origin: '${origin}',
-        widget_referrer: '${origin}'
-      },
+      playerVars: { ${playerVars} },
       events: {
+        onReady: function() {
+          if (initialSeekSeconds > 0) {
+            try { player.seekTo(initialSeekSeconds, true); } catch (e) {}
+          }
+        },
         onStateChange: function(event) {
           report();
           try {
-            if (window.YT && event.data === window.YT.PlayerState.ENDED) {
-              postToApp({ type: 'ended' });
+            if (window.YT) {
+              var isPlaying = event.data === window.YT.PlayerState.PLAYING;
+              postToApp({ type: 'stateChange', isPlaying: isPlaying });
+              if (event.data === window.YT.PlayerState.ENDED) {
+                postToApp({ type: 'ended' });
+              }
             }
           } catch (e) {}
         },
@@ -67,6 +111,17 @@ export function buildYoutubeProgressHtml(videoId: string): string {
     });
     setInterval(report, 3000);
   }
+  window.toggleYoutubePlayback = function() {
+    try {
+      if (!player || !player.getPlayerState) return;
+      var state = player.getPlayerState();
+      if (state === window.YT.PlayerState.PLAYING) {
+        player.pauseVideo();
+      } else {
+        player.playVideo();
+      }
+    } catch (e) {}
+  };
 </script>
 </body>
 </html>`;
@@ -92,7 +147,15 @@ export function buildVimeoProgressHtml(videoId: string): string {
       }
     }).catch(function() {});
   }
+  function postToApp(payload) {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+    }
+  }
   player.on('timeupdate', report);
+  player.on('ended', function() {
+    postToApp({ type: 'ended' });
+  });
   setInterval(report, 3000);
 </script>
 </body>
@@ -120,6 +183,7 @@ export function parseEmbedWebViewMessage(raw: string): EmbedWebViewMessage | nul
       type?: string;
       seconds?: number;
       code?: number;
+      isPlaying?: boolean;
     };
     if (payload.type === 'progress' && typeof payload.seconds === 'number') {
       const seconds = payload.seconds;
@@ -130,6 +194,9 @@ export function parseEmbedWebViewMessage(raw: string): EmbedWebViewMessage | nul
     }
     if (payload.type === 'ended') {
       return { type: 'ended' };
+    }
+    if (payload.type === 'stateChange' && typeof payload.isPlaying === 'boolean') {
+      return { type: 'stateChange', isPlaying: payload.isPlaying };
     }
   } catch {
     return null;

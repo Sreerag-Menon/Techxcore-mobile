@@ -181,6 +181,8 @@ function moduleBase(raw: UnknownRecord, chapterId: number, contentId: number) {
     chapterId,
     title: title.length > 0 ? title : `Module ${contentId}`,
     sequential: asBoolean(raw.sequential ?? raw.is_sequential, false),
+    released: asBoolean(raw.released, true),
+    scheduledOn: asString(raw.scheduled_on ?? raw.scheduledOn, '') || undefined,
     status,
     contentLengthSeconds: asOptionalNumber(
       raw.content_length ?? raw.contentLength ?? raw.duration_seconds,
@@ -497,6 +499,8 @@ export function buildTraineePlaybackHierarchy(
     currentModuleId: Number.isFinite(currentModuleId) ? currentModuleId : undefined,
     topicId,
     courseId: Number.isFinite(hierarchyCourseId) ? hierarchyCourseId : undefined,
+    seekable: asBoolean(row.seekable, true),
+    sequential: asBoolean(row.sequential ?? row.seqContent, false),
   };
 }
 

@@ -5,10 +5,11 @@ import { WebView } from 'react-native-webview';
 export type PdfWebViewProps = {
   uri: string;
   style?: ViewStyle;
+  onLoadEnd?: () => void;
 };
 
 /** Expo Go–compatible PDF display via WebView (local file:// or remote https://). */
-export function PdfWebView({ uri, style }: PdfWebViewProps) {
+export function PdfWebView({ uri, style, onLoadEnd }: PdfWebViewProps) {
   const [isLoading, setIsLoading] = useState(true);
 
   return (
@@ -23,7 +24,10 @@ export function PdfWebView({ uri, style }: PdfWebViewProps) {
         style={styles.webview}
         originWhitelist={['*']}
         onLoadStart={() => setIsLoading(true)}
-        onLoadEnd={() => setIsLoading(false)}
+        onLoadEnd={() => {
+          setIsLoading(false);
+          onLoadEnd?.();
+        }}
         onError={() => setIsLoading(false)}
       />
     </View>

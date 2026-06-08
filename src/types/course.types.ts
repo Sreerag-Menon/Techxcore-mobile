@@ -18,6 +18,8 @@ export interface Course {
   completed_modules: number;
   status: 'not_started' | 'in_progress' | 'completed';
   category?: string;
+  /** Class name from publishings row — used for catalog filter (web `classname`). */
+  classname?: string;
   duration?: string;
   /** Subject / curriculum id from publishings — required for player APIs */
   curriculum_id?: number;
@@ -94,6 +96,9 @@ export type CourseModuleBase = {
   contentLengthSeconds?: number;
   status?: CourseModuleStatus;
   sequential?: boolean;
+  /** Drip content: false when module is scheduled but not yet released. */
+  released?: boolean;
+  scheduledOn?: string;
   summary?: CourseModuleSummary;
 };
 
@@ -162,6 +167,10 @@ export interface CourseHier {
   currentModuleId?: number;
   topicId?: number | string;
   courseId?: number;
+  /** Course publish setting: allow video seeking (default true). */
+  seekable?: boolean;
+  /** Course publish setting: enforce sequential module order. */
+  sequential?: boolean;
 }
 
 export interface CourseDetails {
@@ -178,6 +187,8 @@ export interface CourseDetails {
 
 export interface CourseState {
   courses: Course[];
+  classFilterOptions: string[];
+  isLoadingClassFilters: boolean;
   oldCourses: Course[];
   dashboardCourses: Course[];
   openCourses: Course[];

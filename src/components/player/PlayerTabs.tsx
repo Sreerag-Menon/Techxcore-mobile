@@ -3,7 +3,7 @@ import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 
 import { Button, Card, EmptyState } from '../index';
 import { useTheme } from '../../theme';
-import type { CourseDetails } from '../../types/course.types';
+import type { CourseDetails, CourseModule } from '../../types/course.types';
 import { DiscoursePanel } from './DiscoursePanel';
 import {
   useGetModuleNotesQuery,
@@ -16,22 +16,27 @@ type TabKey = 'details' | 'notes' | 'trainer' | 'discourse';
 
 export type PlayerTabsProps = {
   courseDetails?: CourseDetails | null;
+  module?: CourseModule | null;
   memberId?: number;
   curriculumId?: number;
   coursePublishId: number;
   contentId?: number;
   topicId?: number | string;
   studentName?: string;
+  /** When true, renders without outer Card wrapper (for bottom sheets). */
+  embedded?: boolean;
 };
 
 export function PlayerTabs({
   courseDetails,
+  module,
   memberId,
   curriculumId,
   coursePublishId,
   contentId,
   topicId,
   studentName,
+  embedded = false,
 }: PlayerTabsProps) {
   const { colors } = useTheme();
   const [tab, setTab] = useState<TabKey>('details');
@@ -59,10 +64,14 @@ export function PlayerTabs({
 
   const messages = useMemo(() => messagesQuery.data ?? [], [messagesQuery.data]);
 
-  return (
-    <Card variant="elevated" padding="lg">
-      <View style={{ gap: 12 }}>
-        <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+  const tabContent = (
+    <View style={{ gap: 12, paddingHorizontal: embedded ? 0 : 0, paddingTop: embedded ? 0 : 0 }}>
+      {module ? (
+        <Text style={{ color: colors.textSecondary, fontSize: 13, fontWeight: '600' }} numberOfLines={1}>
+          {module.title}
+        </Text>
+      ) : null}
+      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
           {[
             { key: 'details', label: 'Details' },
             { key: 'notes', label: 'Notes' },
@@ -212,6 +221,15 @@ export function PlayerTabs({
           <DiscoursePanel topicId={topicId} studentName={studentName} />
         ) : null}
       </View>
+  );
+
+  if (embedded) {
+    return tabContent;
+  }
+
+  return (
+    <Card variant="elevated" padding="lg">
+      {tabContent}
     </Card>
   );
 }

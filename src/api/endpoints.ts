@@ -45,6 +45,7 @@ export const ENDPOINTS = {
     COURSE_RATING: '/insert_update_course_rating',
     CERTIFICATE: '/get_trainee_certificate',
     ANALYTICS_PLAYER: '/update_analytics',
+    STUDENT_CLASSES: '/get_all_student_class',
     COURSE_PUBLISHINGS: '/get_trainee_course_publishings',
     PREV_COURSE_PUBLISHINGS: '/get_trainee_prevacd_course_publishings',
     COURSE_SUBSCRIBE: '/insert_trainee_course_subscribe',

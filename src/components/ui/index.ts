@@ -4,6 +4,11 @@ export {
   type BottomSheetGlassBackdropProps,
 } from './BottomSheetGlass';
 export {
+  GlassBottomSheetModal,
+  type GlassBottomSheetModalHandle,
+  type GlassBottomSheetModalProps,
+} from './GlassBottomSheetModal';
+export {
   LiquidGlassView,
   TabBarGlassBackground,
   resolveGlassTier,

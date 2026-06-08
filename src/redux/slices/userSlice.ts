@@ -1,7 +1,7 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { AxiosError } from 'axios';
 
-import { extractItem, post } from '../../api';
+import { asNumber, extractItem, post } from '../../api';
 import { ENDPOINTS } from '../../api/endpoints';
 import type { UserProfile, UserState } from '../../types/user.types';
 
@@ -39,13 +39,18 @@ export const fetchUserProfile = createAsyncThunk<
 >('user/fetchUserProfile', async (_, { rejectWithValue }) => {
   try {
     const response = await post<unknown>(ENDPOINTS.USER.SUMMARY, {});
-    const profile = extractItem<UserProfile>(response, ['profile', 'member', 'user']);
+    const raw = extractItem<Record<string, unknown>>(response, ['profile', 'member', 'user']);
 
-    if (!profile) {
+    if (!raw) {
       throw new Error('User profile not found');
     }
 
-    return profile;
+    return {
+      ...raw,
+      member_id: asNumber(raw.member_id ?? raw.user_id ?? raw.id),
+      organization_id: asNumber(raw.organization_id ?? raw.org_id, 0),
+      credits: raw.credits != null ? asNumber(raw.credits) : undefined,
+    } as UserProfile;
   } catch (error) {
     return rejectWithValue(extractErrorMessage(error));
   }

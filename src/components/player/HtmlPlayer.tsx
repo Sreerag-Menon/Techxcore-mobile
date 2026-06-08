@@ -368,10 +368,8 @@ export function HtmlPlayer({ module, onSectionReady, onCommit, onTerminate }: Ht
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
     width: '100%',
-    height: 520,
-    borderRadius: 16,
-    overflow: 'hidden',
   },
   centered: {
     alignItems: 'center',

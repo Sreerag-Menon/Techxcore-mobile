@@ -5,6 +5,12 @@ import type { AxiosError } from 'axios';
 import { post } from '../../api';
 import { ENDPOINTS } from '../../api/endpoints';
 import {
+  logModuleTimeOutcome,
+  logPointsOutcome,
+  parseModuleTimeResponse,
+} from '../../utils/progressDiagnostics';
+import { logPlayerApiCall, PLAYER_API_ENDPOINTS } from '../../utils/playerApiLog';
+import {
   asNumber,
   asString,
   buildCourseHierarchy,
@@ -13,6 +19,22 @@ import {
   extractItem,
 } from '../../api/normalize';
 import type { CourseHier, CourseModule } from '../../types/course.types';
+
+export type SaveModuleProgressArgs = {
+  coursePublishId: number;
+  courseId: number;
+  curriculumId: number;
+  memberId: number;
+  contentId: number;
+  lastViewedPos?: number;
+  maxViewedPos?: number;
+  timeId?: '0' | '1';
+  inProgress?: 0 | 1;
+  status?: 1;
+  acadYearId?: number;
+  /** When false, skips CurrentModule refetch (inline HTML / HTMLeditor). */
+  invalidateCurrentModule?: boolean;
+};
 
 export type RecordPointsArgs = {
   coursePublishId: number;
@@ -43,6 +65,36 @@ function patchModuleStatusInHierarchy(
   };
 }
 
+function patchModuleProgressInHierarchy(
+  hierarchy: CourseHier,
+  contentId: number,
+  lastViewedPos: number,
+  maxViewedPos: number,
+): CourseHier {
+  return {
+    ...hierarchy,
+    chapters: hierarchy.chapters.map((chapter) => ({
+      ...chapter,
+      modules: chapter.modules.map((mod) => {
+        if (mod.contentId !== contentId) return mod;
+        const prevLast = mod.summary?.lastPositionSeconds ?? 0;
+        const prevMax = mod.summary?.totalTimeSeconds ?? prevLast;
+        const nextLast = Math.max(prevLast, lastViewedPos);
+        const nextMax = Math.max(prevMax, maxViewedPos, nextLast);
+        return {
+          ...mod,
+          status: mod.status === 'completed' ? mod.status : 'in_progress',
+          summary: {
+            ...mod.summary,
+            lastPositionSeconds: nextLast,
+            totalTimeSeconds: nextMax,
+          },
+        };
+      }),
+    })),
+  };
+}
+
 function extractPointsStatusValue(response: unknown): number {
   const row = extractItem<Record<string, unknown>>(response);
   return asNumber(row?.statusvalue ?? row?.StatusValue, 0);
@@ -58,6 +110,25 @@ type AxiosBaseQueryError = {
   data?: unknown;
   message: string;
 };
+
+function buildModuleProgressBody(args: SaveModuleProgressArgs): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    timeId: args.timeId ?? '1',
+    inProgress: args.inProgress ?? 1,
+    status: args.status ?? 1,
+    courseId: String(args.courseId),
+    memberId: String(args.memberId),
+    videoUnitId: String(args.contentId),
+    curriculumId: String(args.curriculumId),
+    coursePublishId: String(args.coursePublishId),
+  };
+
+  if (args.lastViewedPos != null) body.lastViewedPos = args.lastViewedPos;
+  if (args.maxViewedPos != null) body.maxViewedPos = args.maxViewedPos;
+  if (args.acadYearId != null) body.acadYearId = String(args.acadYearId);
+
+  return body;
+}
 
 const axiosBaseQuery =
   (): BaseQueryFn<AxiosBaseQueryArgs, unknown, AxiosBaseQueryError> =>
@@ -194,15 +265,30 @@ export const playerApi = createApi({
   endpoints: (builder) => ({
     getCourseHierarchy: builder.query<
       CourseHier,
-      { coursePublishId: number; courseId: number }
+      { coursePublishId: number; courseId: number; chapterId?: number }
     >({
-      query: ({ coursePublishId, courseId }) => ({
-        url: ENDPOINTS.STUDENT.TRAINEE_COURSE_PUBLISH_HIER,
-        data: {
+      query: ({ coursePublishId, courseId, chapterId }) => {
+        const data: Record<string, string> = {
           coursePublishId: String(coursePublishId),
           courseId: String(courseId),
-        },
-      }),
+        };
+        if (chapterId != null) data.chapterId = String(chapterId);
+        return { url: ENDPOINTS.STUDENT.TRAINEE_COURSE_PUBLISH_HIER, data };
+      },
+      async onQueryStarted(arg, { queryFulfilled }) {
+        const data: Record<string, string> = {
+          coursePublishId: String(arg.coursePublishId),
+          courseId: String(arg.courseId),
+        };
+        if (arg.chapterId != null) data.chapterId = String(arg.chapterId);
+        logPlayerApiCall(PLAYER_API_ENDPOINTS.COURSE_HIER, 'request', data);
+        try {
+          const { data: response } = await queryFulfilled;
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.COURSE_HIER, 'response', response);
+        } catch (error) {
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.COURSE_HIER, 'error', error);
+        }
+      },
       transformResponse: (response, _meta, arg) =>
         transformHierarchyResponse(response, arg.coursePublishId, arg.courseId),
       providesTags: (_result, _error, arg) => [
@@ -212,46 +298,80 @@ export const playerApi = createApi({
 
     getCurrentModule: builder.query<
       TraineeCurrentModuleResponse | null,
-      { coursePublishId: number; courseId: number; curriculumId: number }
+      { coursePublishId: number; courseId: number; curriculumId: number; chapterId?: number }
     >({
-      query: ({ coursePublishId, courseId, curriculumId }) => ({
-        url: ENDPOINTS.STUDENT.CURRENT_MODULE,
-        data: {
+      query: ({ coursePublishId, courseId, curriculumId, chapterId }) => {
+        const data: Record<string, string> = {
           coursePublishId: String(coursePublishId),
           courseId: String(courseId),
           curriculumId: String(curriculumId),
-        },
-      }),
+        };
+        if (chapterId != null) data.chapterId = String(chapterId);
+        return { url: ENDPOINTS.STUDENT.CURRENT_MODULE, data };
+      },
+      async onQueryStarted(arg, { queryFulfilled }) {
+        const data: Record<string, string> = {
+          coursePublishId: String(arg.coursePublishId),
+          courseId: String(arg.courseId),
+          curriculumId: String(arg.curriculumId),
+        };
+        if (arg.chapterId != null) data.chapterId = String(arg.chapterId);
+        logPlayerApiCall(PLAYER_API_ENDPOINTS.CURRENT_MODULE, 'request', data);
+        try {
+          const { data: response } = await queryFulfilled;
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.CURRENT_MODULE, 'response', response);
+        } catch (error) {
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.CURRENT_MODULE, 'error', error);
+        }
+      },
       transformResponse: (response) => transformCurrentModuleResponse(response),
       providesTags: (_result, _error, arg) => [
         { type: 'CurrentModule', id: arg.coursePublishId },
       ],
     }),
 
-    saveModuleProgress: builder.mutation<
-      unknown,
-      {
-        coursePublishId: number;
-        curriculumId?: number;
-        contentId: number;
-        seconds: number;
-        totalSeconds?: number;
-        action?: 'summary' | 'progress';
-        /** When false, skips CurrentModule refetch (inline HTML / HTMLeditor). */
-        invalidateCurrentModule?: boolean;
-      }
-    >({
-      query: ({ coursePublishId, curriculumId, contentId, seconds, totalSeconds }) => ({
+    saveModuleProgress: builder.mutation<unknown, SaveModuleProgressArgs>({
+      query: (args) => ({
         url: ENDPOINTS.STUDENT.MODULE_PROGRESS,
-        data: {
-          coursePublishId: String(coursePublishId),
-          curriculumId: curriculumId != null ? String(curriculumId) : undefined,
-          videoUnitId: String(contentId),
-          lastViewedPos: seconds,
-          maxViewedPos: totalSeconds ?? seconds,
-        },
+        data: buildModuleProgressBody(args),
       }),
+      async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        const body = buildModuleProgressBody(arg);
+        logPlayerApiCall(PLAYER_API_ENDPOINTS.MODULE_TIME, 'request', body);
+        logModuleTimeOutcome('request', body);
+        try {
+          const { data } = await queryFulfilled;
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.MODULE_TIME, 'response', data);
+          logModuleTimeOutcome('response', body, data);
+
+          const { accepted } = parseModuleTimeResponse(data);
+          if (!accepted) return;
+
+          // Periodic saves (timeId '1') don't need optimistic hierarchy patch — avoids re-render cascade
+          if (arg.timeId === '1') return;
+
+          const lastPos = arg.lastViewedPos;
+          const maxPos = arg.maxViewedPos ?? lastPos;
+          if (lastPos == null || !Number.isFinite(lastPos)) return;
+
+          dispatch(
+            playerApi.util.updateQueryData(
+              'getCourseHierarchy',
+              { coursePublishId: arg.coursePublishId, courseId: arg.courseId },
+              (draft) =>
+                patchModuleProgressInHierarchy(draft, arg.contentId, lastPos, maxPos ?? lastPos),
+            ),
+          );
+        } catch (error) {
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.MODULE_TIME, 'error', error);
+          logModuleTimeOutcome('error', body, error);
+        }
+      },
       invalidatesTags: (_result, _error, arg) => {
+        // Periodic playback saves should not invalidate cache — avoids player re-render cascade
+        if (arg.timeId === '1' && arg.invalidateCurrentModule === false) {
+          return [];
+        }
         const tags: Array<{ type: 'CurrentModule' | 'Progress'; id: number }> = [
           { type: 'Progress', id: arg.contentId },
         ];
@@ -289,9 +409,8 @@ export const playerApi = createApi({
         type = 'M',
         classId,
         acadYearId,
-      }) => ({
-        url: ENDPOINTS.STUDENT.TRAINEE_POINTS,
-        data: {
+      }) => {
+        const data: Record<string, string> = {
           memberId: String(memberId),
           coursePublishId: String(coursePublishId),
           curriculumId: String(curriculumId),
@@ -299,14 +418,30 @@ export const playerApi = createApi({
           videoUnitId: String(videoUnitId ?? contentId),
           chapterId: String(chapterId),
           type,
-          ...(classId != null ? { classId: String(classId) } : {}),
-          ...(acadYearId != null ? { acadYearId: String(acadYearId) } : {}),
-        },
-      }),
+        };
+        if (classId != null) data.classId = String(classId);
+        if (acadYearId != null) data.acadYearId = String(acadYearId);
+        return { url: ENDPOINTS.STUDENT.TRAINEE_POINTS, data };
+      },
       async onQueryStarted(arg, { dispatch, queryFulfilled }) {
+        const data: Record<string, string> = {
+          memberId: String(arg.memberId),
+          coursePublishId: String(arg.coursePublishId),
+          curriculumId: String(arg.curriculumId),
+          courseId: String(arg.courseId),
+          videoUnitId: String(arg.videoUnitId ?? arg.contentId),
+          chapterId: String(arg.chapterId),
+          type: arg.type ?? 'M',
+        };
+        if (arg.classId != null) data.classId = String(arg.classId);
+        if (arg.acadYearId != null) data.acadYearId = String(arg.acadYearId);
+        logPlayerApiCall(PLAYER_API_ENDPOINTS.TRAINEE_POINTS, 'request', data);
+        logPointsOutcome('request', data);
         try {
-          const { data } = await queryFulfilled;
-          if (extractPointsStatusValue(data) !== 1) return;
+          const { data: response } = await queryFulfilled;
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.TRAINEE_POINTS, 'response', response);
+          logPointsOutcome('response', data, response);
+          if (extractPointsStatusValue(response) !== 1) return;
           dispatch(
             playerApi.util.updateQueryData(
               'getCourseHierarchy',
@@ -314,11 +449,15 @@ export const playerApi = createApi({
               (draft) => patchModuleStatusInHierarchy(draft, arg.contentId, 'completed'),
             ),
           );
-        } catch {
-          // mutation failed — leave cache unchanged
+        } catch (error) {
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.TRAINEE_POINTS, 'error', error);
+          logPointsOutcome('error', data, error);
         }
       },
-      invalidatesTags: () => [],
+      invalidatesTags: (_result, _error, arg) => [
+        { type: 'Hierarchy', id: arg.coursePublishId },
+        { type: 'CurrentModule', id: arg.coursePublishId },
+      ],
     }),
 
     saveCreditTime: builder.mutation<
@@ -343,6 +482,23 @@ export const playerApi = createApi({
           stopCourse: stopCourse ?? 0,
         },
       }),
+      async onQueryStarted(arg, { queryFulfilled }) {
+        const data = {
+          hourId: arg.hourId ?? 0,
+          coursePublishId: String(arg.coursePublishId),
+          courseId: String(arg.courseId),
+          studentId: String(arg.studentId),
+          startCourse: arg.startCourse ?? 0,
+          stopCourse: arg.stopCourse ?? 0,
+        };
+        logPlayerApiCall(PLAYER_API_ENDPOINTS.CREDIT_TIME, 'request', data);
+        try {
+          const { data: response } = await queryFulfilled;
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.CREDIT_TIME, 'response', response);
+        } catch (error) {
+          logPlayerApiCall(PLAYER_API_ENDPOINTS.CREDIT_TIME, 'error', error);
+        }
+      },
     }),
 
     getModuleNotes: builder.query<

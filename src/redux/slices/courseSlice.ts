@@ -3,6 +3,7 @@ import type { AxiosError } from 'axios';
 
 import { asNumber, asString, extractArray, extractItem, post } from '../../api';
 import { ENDPOINTS } from '../../api/endpoints';
+import { logPlayerApiCall, PLAYER_API_ENDPOINTS } from '../../utils/playerApiLog';
 import type { RootState } from '../store';
 import { mapCoursePublishingList } from '../../services/mapCoursePublishing';
 import type {
@@ -18,6 +19,8 @@ import type {
 
 const initialState: CourseState = {
   courses: [],
+  classFilterOptions: [],
+  isLoadingClassFilters: false,
   oldCourses: [],
   dashboardCourses: [],
   openCourses: [],
@@ -50,6 +53,28 @@ function extractErrorMessage(error: unknown): string {
 // Async thunks
 // --------------------------------------------------------------------------
 
+export const fetchStudentClasses = createAsyncThunk<
+  string[],
+  void,
+  { rejectValue: string }
+>('course/fetchStudentClasses', async (_, { rejectWithValue }) => {
+  const requestBody = {};
+  logPlayerApiCall(PLAYER_API_ENDPOINTS.STUDENT_CLASSES, 'request', requestBody);
+
+  try {
+    const response = await post<unknown>(ENDPOINTS.STUDENT.STUDENT_CLASSES, requestBody);
+    logPlayerApiCall(PLAYER_API_ENDPOINTS.STUDENT_CLASSES, 'response', response);
+    const rows = extractArray<Record<string, unknown>>(response);
+    const names = rows
+      .map((row) => asString(row.class_name ?? row.classname, '').trim())
+      .filter((name) => name.length > 0);
+    return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+  } catch (error) {
+    logPlayerApiCall(PLAYER_API_ENDPOINTS.STUDENT_CLASSES, 'error', error);
+    return rejectWithValue(extractErrorMessage(error));
+  }
+});
+
 export const fetchCourses = createAsyncThunk<
   Course[],
   Record<string, unknown> | undefined,
@@ -69,14 +94,18 @@ export const fetchCourses = createAsyncThunk<
     requestBody.acadYearId = String(user.acad_year_id);
   }
 
+  logPlayerApiCall(PLAYER_API_ENDPOINTS.COURSE_PUBLISHINGS, 'request', requestBody);
+
   try {
     const response = await post<unknown>(
       ENDPOINTS.STUDENT.COURSE_PUBLISHINGS,
       requestBody,
     );
+    logPlayerApiCall(PLAYER_API_ENDPOINTS.COURSE_PUBLISHINGS, 'response', response);
     const rows = extractArray<unknown>(response);
     return mapCoursePublishingList(rows);
   } catch (error) {
+    logPlayerApiCall(PLAYER_API_ENDPOINTS.COURSE_PUBLISHINGS, 'error', error);
     return rejectWithValue(extractErrorMessage(error));
   }
 });
@@ -251,6 +280,19 @@ const courseSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
+    // fetchStudentClasses
+    builder
+      .addCase(fetchStudentClasses.pending, (state) => {
+        state.isLoadingClassFilters = true;
+      })
+      .addCase(fetchStudentClasses.fulfilled, (state, action) => {
+        state.isLoadingClassFilters = false;
+        state.classFilterOptions = action.payload;
+      })
+      .addCase(fetchStudentClasses.rejected, (state) => {
+        state.isLoadingClassFilters = false;
+      });
+
     // fetchCourses
     builder
       .addCase(fetchCourses.pending, (state) => {
