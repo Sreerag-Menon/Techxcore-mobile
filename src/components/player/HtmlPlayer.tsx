@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 
-import type {
-  CourseHtmlEditorModule,
-  CourseHtmlLikeModule,
-  CourseScormModule,
+import {
+  HTML_EDITOR_MODULE_TYPE,
+  type CourseHtmlEditorModule,
+  type CourseHtmlLikeModule,
+  type CourseScormModule,
 } from '../../types/course.types';
+import { useTheme } from '../../theme';
+import { spacing } from '../../theme/spacing';
+import { fontSize, lineHeight } from '../../theme/typography';
 import {
   inlineHtmlContentFingerprint,
   isNavigableWebUrl,
+  isUnresolvedHtmlEditorBody,
 } from '../../utils/htmlContent';
 import { resolveInlineHtmlWebViewSource, type InlineHtmlWebViewSource } from '../../utils/inlineHtmlCache';
 import { asyncStorage } from '../../utils/storage';
@@ -109,6 +114,7 @@ function isFileAccessDeniedError(description: string, code?: number): boolean {
 }
 
 export function HtmlPlayer({ module, onSectionReady, onCommit, onTerminate }: HtmlPlayerProps) {
+  const { colors, fontFamily } = useTheme();
   const sectionReadyFiredRef = useRef(false);
   const [inlineSource, setInlineSource] = useState<InlineHtmlWebViewSource | null>(null);
   const [inlineLoadError, setInlineLoadError] = useState(false);
@@ -322,21 +328,48 @@ export function HtmlPlayer({ module, onSectionReady, onCommit, onTerminate }: Ht
     [module.contentId, onCommit, onTerminate],
   );
 
+  const unresolvedEditorBody =
+    module.type === HTML_EDITOR_MODULE_TYPE && isUnresolvedHtmlEditorBody(module.url);
+
   if (isLoadingInline) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        {inlineLoadError ? null : <ActivityIndicator />}
+      <View style={[styles.container, styles.centered, styles.messagePad]}>
+        {inlineLoadError || unresolvedEditorBody ? (
+          <Text
+            style={[
+              styles.errorText,
+              { color: colors.textSecondary, fontFamily: fontFamily.medium },
+            ]}
+          >
+            Content could not be loaded
+          </Text>
+        ) : (
+          <ActivityIndicator color={colors.primary} />
+        )}
       </View>
     );
   }
 
-  if (!webViewSource) {
-    return <View style={styles.container} />;
+  if (unresolvedEditorBody || !webViewSource) {
+    return (
+      <View style={[styles.container, styles.centered, styles.messagePad]}>
+        <Text
+          style={[
+            styles.errorText,
+            { color: colors.textSecondary, fontFamily: fontFamily.medium },
+          ]}
+        >
+          Content could not be loaded
+        </Text>
+      </View>
+    );
   }
 
   const webViewKey = uriLoadFailed
     ? `${module.contentId}-html`
     : String(module.contentId);
+
+  const isHtmlEditorModule = module.type === HTML_EDITOR_MODULE_TYPE;
 
   return (
     <View style={styles.container}>
@@ -353,6 +386,9 @@ export function HtmlPlayer({ module, onSectionReady, onCommit, onTerminate }: Ht
         allowUniversalAccessFromFileURLs={usesLocalFileUri}
         javaScriptEnabled
         domStorageEnabled
+        scrollEnabled={!isHtmlEditorModule}
+        nestedScrollEnabled={!isHtmlEditorModule}
+        showsVerticalScrollIndicator
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
         injectedJavaScriptBeforeContentLoaded={injectedBeforeLoad}
@@ -370,12 +406,25 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
+    minHeight: 0,
+    alignSelf: 'stretch',
   },
   centered: {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  messagePad: {
+    padding: spacing.lg,
+  },
+  errorText: {
+    fontSize: fontSize.sm,
+    lineHeight: lineHeight.sm,
+    textAlign: 'center',
+  },
   webview: {
     flex: 1,
+    width: '100%',
+    minHeight: 0,
+    backgroundColor: 'transparent',
   },
 });

@@ -16,7 +16,10 @@ export type VimeoModulePlayerLayout = 'inline' | 'fullscreen';
 export type VimeoModulePlayerProps = {
   url: string;
   initialSeekSeconds?: number;
+  initialMaxViewedSeconds?: number;
+  minSeekSeconds?: number;
   layout?: VimeoModulePlayerLayout;
+  seekable?: boolean;
   onProgress?: (seconds: number) => void;
   onEnd?: () => void;
   onFullscreenRequest?: () => void;
@@ -25,13 +28,26 @@ export type VimeoModulePlayerProps = {
 export function VimeoModulePlayer({
   url,
   initialSeekSeconds = 0,
+  initialMaxViewedSeconds = 0,
+  minSeekSeconds = 0,
   layout = 'inline',
+  seekable = true,
   onProgress,
   onEnd,
   onFullscreenRequest,
 }: VimeoModulePlayerProps) {
   const videoId = useMemo(() => extractVimeoVideoId(url), [url]);
-  const html = useMemo(() => (videoId ? buildVimeoProgressHtml(videoId) : null), [videoId]);
+  const html = useMemo(
+    () =>
+      videoId
+        ? buildVimeoProgressHtml(videoId, {
+            seekable,
+            maxSeekSeconds: Math.max(initialSeekSeconds, initialMaxViewedSeconds, minSeekSeconds),
+            minSeekSeconds,
+          })
+        : null,
+    [initialMaxViewedSeconds, initialSeekSeconds, minSeekSeconds, seekable, videoId],
+  );
 
   if (!html) {
     return null;
@@ -40,7 +56,7 @@ export function VimeoModulePlayer({
   const showFullscreenButton = layout === 'inline' && Boolean(onFullscreenRequest);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, layout === 'fullscreen' && styles.containerFullscreen]}>
       <WebView
         source={{ html, baseUrl: WEBVIEW_EMBED_BASE_URL }}
         originWhitelist={['*']}
@@ -48,6 +64,7 @@ export function VimeoModulePlayer({
         domStorageEnabled
         allowsInlineMediaPlayback
         mediaPlaybackRequiresUserAction={false}
+        allowsFullscreenVideo={false}
         style={styles.webview}
         injectedJavaScript={
           initialSeekSeconds > 0
@@ -69,6 +86,12 @@ export function VimeoModulePlayer({
         }}
       />
 
+      {!seekable ? (
+        <View style={styles.lockedBadge} pointerEvents="none">
+          <Ionicons name="lock-closed" size={11} color="#fff" />
+        </View>
+      ) : null}
+
       {showFullscreenButton ? (
         <Pressable
           onPress={onFullscreenRequest}
@@ -88,8 +111,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
+    backgroundColor: '#000',
+  },
+  containerFullscreen: {
+    minHeight: 200,
   },
   webview: { flex: 1 },
+  lockedBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   fullscreenButton: {
     position: 'absolute',
     top: 10,

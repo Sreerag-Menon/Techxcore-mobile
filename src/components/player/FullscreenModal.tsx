@@ -3,7 +3,6 @@ import {
   BackHandler,
   Modal,
   Pressable,
-  StatusBar,
   StyleSheet,
   View,
 } from 'react-native';
@@ -75,15 +74,25 @@ export function FullscreenModal({ visible, onClose, children }: FullscreenModalP
   return (
     <Modal
       visible={visible}
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
+      animationType="slide"
+      presentationStyle="fullScreen"
       supportedOrientations={[...ALL_ORIENTATIONS]}
       onRequestClose={handleClose}
+      statusBarTranslucent
     >
-      <StatusBar hidden />
       <View style={styles.container}>
-        {children}
+        <View
+          style={[
+            styles.content,
+            {
+              paddingBottom: insets.bottom,
+              paddingLeft: insets.left,
+              paddingRight: insets.right,
+            },
+          ]}
+        >
+          {children}
+        </View>
 
         <Pressable
           onPress={handleClose}
@@ -92,8 +101,8 @@ export function FullscreenModal({ visible, onClose, children }: FullscreenModalP
           style={[
             styles.closeButton,
             {
-              top: Math.max(insets.top, 12),
-              right: Math.max(insets.right, 12),
+              top: insets.top + 8,
+              right: insets.right + 12,
             },
           ]}
           hitSlop={8}
@@ -109,6 +118,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
+  },
+  content: {
+    flex: 1,
+    width: '100%',
+    minHeight: 0,
+    justifyContent: 'center',
   },
   closeButton: {
     position: 'absolute',

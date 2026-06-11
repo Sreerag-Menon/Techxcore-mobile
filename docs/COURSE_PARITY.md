@@ -30,7 +30,9 @@ Reference for web LMS student flows vs Techxcore-mobile. API base: `POST /api/v0
 | Discourse | Yes | Tab wired | Done |
 | Video resume seek | Yes | Native + WebView | Done |
 | YouTube/Vimeo progress | Partial web | Bridge added | Done |
-| HTMLEditor / embedded inline HTML | `Embedded` + **Mark as complete**; HTMLEditor HTML from `browse_url` via `dangerouslySetInnerHTML` | WebView inline from `browse_url` only (not API `content_url`); file cache when large; **Mark as complete** (no auto-complete on load) | Done |
+| Text / PDF (`is_text_only`) | `Pdf` player; `module.url` = API **`content_url`** (signed S3); `browse_url` = S3 key | `PdfPlayer`; `url` = `content_url \|\| browse_url`; `browseUrl` stored for reference | Done |
+| External HTML URL | `Html` iframe; `url` = **`content_url`** | `HtmlPlayer` uri WebView; **Mark as complete** after load | Done |
+| Embedded / HTMLEditor | `Embedded` + **Mark as complete**; HTMLEditor body from API **`content_url`** (`browse_url` = S3 key) | **HTMLEditor**: `HtmlEditorReader` (`react-native-render-html`) in `DocumentReaderShell` (article layout, parent scroll). **Embedded/uri html**: WebView in `PlayerShell`; error if only S3 key; **Mark as complete** | Done |
 | Old courses | Yes | Screen added | Done |
 | Offline downloads | No | No | Out of scope |
 

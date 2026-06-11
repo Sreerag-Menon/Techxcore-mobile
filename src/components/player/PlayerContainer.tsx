@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type AppStateStatus, StyleSheet, Text, View } from 'react-native';
+import {
+  createVideoPlayer,
+  type VideoPlayer as ExpoVideoPlayer,
+} from 'expo-video';
 
 import { asNumber } from '../../api/normalize';
 import { HTML_EDITOR_MODULE_TYPE, type CourseModule } from '../../types/course.types';
@@ -20,13 +24,18 @@ import {
   type SaveModuleProgressArgs,
 } from '../../redux/api/playerApi';
 import { VideoPlayer } from './VideoPlayer';
-import { YoutubeModulePlayer } from './YoutubeModulePlayer';
+import {
+  YoutubeModulePlayer,
+  type YoutubePlaybackSession,
+} from './YoutubeModulePlayer';
 import { VimeoModulePlayer } from './VimeoModulePlayer';
 import { PdfPlayer } from './PdfPlayer';
 import { AudioPlayer } from './AudioPlayer';
 import { HtmlPlayer } from './HtmlPlayer';
+import { HtmlEditorReader } from './HtmlEditorReader';
 import { AssessmentRunner } from './AssessmentRunner';
 import { PlayerShell } from './PlayerShell';
+import { DocumentReaderShell } from './DocumentReaderShell';
 import { FullscreenModal } from './FullscreenModal';
 
 export type PlayerLayout = 'inline' | 'fullscreen';
@@ -67,6 +76,10 @@ function supportsFullscreen(module: CourseModule): boolean {
 
 function usesPlayerShell(module: CourseModule): boolean {
   return module.type !== 'test' && module.type !== 'survey';
+}
+
+function usesDocumentReaderShell(module: CourseModule): boolean {
+  return module.type === HTML_EDITOR_MODULE_TYPE;
 }
 
 export function PlayerContainer({
@@ -121,7 +134,38 @@ export function PlayerContainer({
   const manualCompletion = needsManualModuleCompletion(module);
   const canFullscreen = supportsFullscreen(module);
   const shellWrapped = usesPlayerShell(module);
+  const readerWrapped = usesDocumentReaderShell(module);
   const showShellFullscreenButton = canFullscreen && module.type !== 'video';
+  const isLocalHostedVideo =
+    module.type === 'video' &&
+    module.provider !== 'youtube' &&
+    module.provider !== 'vimeo';
+  const [localVideoPlayer, setLocalVideoPlayer] = useState<ExpoVideoPlayer | null>(null);
+  const youtubeSessionRef = useRef<YoutubePlaybackSession>({
+    playing: false,
+    hasStarted: false,
+  });
+
+  const handleYoutubeSessionChange = useCallback((session: YoutubePlaybackSession) => {
+    youtubeSessionRef.current = session;
+  }, []);
+
+  useEffect(() => {
+    if (!isLocalHostedVideo) {
+      setLocalVideoPlayer(null);
+      return;
+    }
+
+    const player = createVideoPlayer({ uri: module.url });
+    player.timeUpdateEventInterval = 0.5;
+    player.keepScreenOnWhilePlaying = true;
+    setLocalVideoPlayer(player);
+
+    return () => {
+      player.release();
+      setLocalVideoPlayer(null);
+    };
+  }, [isLocalHostedVideo, module.url]);
 
   const resolvedMemberId = useMemo(() => {
     const id = asNumber(memberId, Number.NaN);
@@ -434,48 +478,75 @@ export function PlayerContainer({
   }, [manualCompletion, module, onModuleComplete, progressDiagCtx, tracksPlaybackTime]);
 
   const handleFullscreenRequest = useCallback(() => {
+    setFrozenSeek((prev) => ({
+      ...prev,
+      seekSeconds: latestSecondsRef.current,
+      maxSeconds: maxViewedSecondsRef.current,
+    }));
     setIsFullscreen(true);
   }, []);
 
   const handleFullscreenClose = useCallback(() => {
+    setFrozenSeek((prev) => ({
+      ...prev,
+      seekSeconds: latestSecondsRef.current,
+      maxSeconds: maxViewedSecondsRef.current,
+    }));
     setIsFullscreen(false);
   }, []);
 
   const renderPlayer = (layout: PlayerLayout) => {
     if (module.type === 'video') {
+      const onFullscreenRequest =
+        layout === 'inline' && canFullscreen ? handleFullscreenRequest : undefined;
+      const videoSeekProps = {
+        initialSeekSeconds,
+        initialMaxViewedSeconds: initialMaxSeconds,
+        minSeekSeconds: 0,
+        seekable,
+      };
+
       if (module.provider === 'youtube') {
+        const youtubeSession = youtubeSessionRef.current;
         return (
           <YoutubeModulePlayer
             url={module.url}
-            initialSeekSeconds={initialSeekSeconds}
-            seekable={seekable}
-            onProgress={updatePlaybackPosition}
-            onEnd={handleComplete}
-          />
-        );
-      }
-
-      const onFullscreenRequest =
-        layout === 'inline' && canFullscreen ? handleFullscreenRequest : undefined;
-
-      if (module.provider === 'vimeo') {
-        return (
-          <VimeoModulePlayer
-            url={module.url}
             layout={layout}
-            initialSeekSeconds={initialSeekSeconds}
+            {...videoSeekProps}
+            autoResumeOnReady={layout === 'fullscreen' && youtubeSession.playing}
+            sessionHasStarted={
+              layout === 'fullscreen' ? youtubeSession.hasStarted : false
+            }
+            onSessionChange={handleYoutubeSessionChange}
             onProgress={updatePlaybackPosition}
             onEnd={handleComplete}
             onFullscreenRequest={onFullscreenRequest}
           />
         );
       }
+
+      if (module.provider === 'vimeo') {
+        return (
+          <VimeoModulePlayer
+            url={module.url}
+            layout={layout}
+            {...videoSeekProps}
+            onProgress={updatePlaybackPosition}
+            onEnd={handleComplete}
+            onFullscreenRequest={onFullscreenRequest}
+          />
+        );
+      }
+      if (isLocalHostedVideo && !localVideoPlayer) {
+        return <View style={styles.inlineVideoPlaceholder} />;
+      }
+
       return (
         <VideoPlayer
           url={module.url}
           layout={layout}
-          initialSeekSeconds={initialSeekSeconds}
-          seekable={seekable}
+          {...videoSeekProps}
+          externalPlayer={localVideoPlayer ?? undefined}
           onProgress={updatePlaybackPosition}
           onEnd={handleComplete}
           onFullscreenRequest={onFullscreenRequest}
@@ -484,7 +555,14 @@ export function PlayerContainer({
     }
 
     if (module.type === 'pdf') {
-      return <PdfPlayer url={module.url} layout={layout} onComplete={handleComplete} />;
+      return (
+        <PdfPlayer
+          url={module.url}
+          layout={layout}
+          isCompleted={module.status === 'completed'}
+          onComplete={handleComplete}
+        />
+      );
     }
 
     if (module.type === 'audio') {
@@ -499,12 +577,18 @@ export function PlayerContainer({
       );
     }
 
-    if (
-      module.type === 'html' ||
-      module.type === 'embedded' ||
-      module.type === 'ppt' ||
-      module.type === HTML_EDITOR_MODULE_TYPE
-    ) {
+    if (module.type === HTML_EDITOR_MODULE_TYPE) {
+      return (
+        <HtmlEditorReader
+          module={module}
+          layout={layout}
+          scrollMode={layout === 'fullscreen' ? 'self' : 'parent'}
+          onSectionReady={onSectionReady}
+        />
+      );
+    }
+
+    if (module.type === 'html' || module.type === 'embedded' || module.type === 'ppt') {
       return <HtmlPlayer module={module} onSectionReady={onSectionReady} />;
     }
 
@@ -544,11 +628,37 @@ export function PlayerContainer({
     );
   };
 
-  const inlinePlayer = renderPlayer('inline');
+  const isSingleInstanceVideo = module.type === 'video';
+
+  const inlinePlayer =
+    isFullscreen && isSingleInstanceVideo
+      ? <View style={styles.inlineVideoPlaceholder} />
+      : renderPlayer('inline');
   const fullscreenPlayer = isFullscreen ? renderPlayer('fullscreen') : null;
 
   if (!shellWrapped) {
     return <View style={styles.assessmentWrap}>{inlinePlayer}</View>;
+  }
+
+  if (readerWrapped) {
+    return (
+      <>
+        <DocumentReaderShell
+          module={module}
+          readerMode="inline"
+          onFullscreen={canFullscreen ? handleFullscreenRequest : undefined}
+          showFullscreenButton={canFullscreen}
+        >
+          {inlinePlayer}
+        </DocumentReaderShell>
+
+        <FullscreenModal visible={isFullscreen} onClose={handleFullscreenClose}>
+          <DocumentReaderShell module={module} readerMode="fullscreen" fillParent>
+            {fullscreenPlayer}
+          </DocumentReaderShell>
+        </FullscreenModal>
+      </>
+    );
   }
 
   return (
@@ -562,7 +672,9 @@ export function PlayerContainer({
       </PlayerShell>
 
       <FullscreenModal visible={isFullscreen} onClose={handleFullscreenClose}>
-        <View style={styles.fullscreenContent}>{fullscreenPlayer}</View>
+        <PlayerShell module={module} fillParent>
+          {fullscreenPlayer}
+        </PlayerShell>
       </FullscreenModal>
     </>
   );
@@ -578,6 +690,10 @@ const styles = StyleSheet.create({
   fullscreenContent: {
     flex: 1,
     width: '100%',
+  },
+  inlineVideoPlaceholder: {
+    flex: 1,
+    backgroundColor: '#000',
   },
   assessmentWrap: {
     width: '100%',

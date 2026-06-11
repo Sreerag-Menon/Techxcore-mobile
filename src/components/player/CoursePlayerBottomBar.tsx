@@ -2,7 +2,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LiquidGlassView } from '../ui/LiquidGlassView';
 import { useTheme } from '../../theme';
+import { spacing } from '../../theme/spacing';
+import { fontSize, lineHeight } from '../../theme/typography';
 
 export type CoursePlayerBottomBarProps = {
   activeIndex: number;
@@ -21,9 +24,6 @@ export type CoursePlayerBottomBarProps = {
 };
 
 export function CoursePlayerBottomBar({
-  activeIndex,
-  totalModules,
-  completedModules,
   hasPrev,
   hasNext,
   onPrev,
@@ -35,38 +35,88 @@ export function CoursePlayerBottomBar({
   showRate = false,
   showCertificate = false,
 }: CoursePlayerBottomBarProps) {
-  const { colors } = useTheme();
+  const { colors, fontFamily } = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
-    <View
+    <LiquidGlassView
+      variant="sheet"
+      borderRadius={0}
       style={[
-        styles.container,
-        {
-          backgroundColor: colors.surface,
-          borderTopColor: colors.border,
-          paddingBottom: Math.max(insets.bottom, 10),
-        },
+        styles.glassShell,
+        { paddingBottom: Math.max(insets.bottom, spacing.md) },
       ]}
     >
-      <View style={styles.navRow}>
+      <View style={styles.row}>
         <Pressable
           onPress={onPrev}
           disabled={!hasPrev}
           accessibilityRole="button"
           accessibilityLabel="Previous module"
-          style={[styles.navButton, { opacity: hasPrev ? 1 : 0.35 }]}
+          style={[
+            styles.navPill,
+            styles.navPillGhost,
+            {
+              borderColor: colors.border,
+              opacity: hasPrev ? 1 : 0.35,
+            },
+          ]}
         >
-          <Ionicons name="chevron-back" size={18} color={colors.text} />
-          <Text style={[styles.navButtonText, { color: colors.text }]}>Prev</Text>
+          <Ionicons name="chevron-back" size={16} color={colors.text} />
+          <Text
+            style={[
+              styles.navPillText,
+              { color: colors.text, fontFamily: fontFamily.medium },
+            ]}
+          >
+            Prev
+          </Text>
         </Pressable>
 
-        <View style={[styles.counterPill, { backgroundColor: colors.background, borderColor: colors.border }]}>
-          <Text style={[styles.counterText, { color: colors.textSecondary }]}>
-            {activeIndex >= 0 && totalModules > 0
-              ? `${activeIndex + 1} of ${totalModules} · ${Math.round((completedModules / totalModules) * 100)}%`
-              : '—'}
-          </Text>
+        <View style={styles.centerActions}>
+          <Pressable
+            onPress={onOpenContents}
+            accessibilityRole="button"
+            accessibilityLabel="Open course contents"
+            style={styles.iconAction}
+            hitSlop={6}
+          >
+            <Ionicons name="list" size={22} color={colors.primary} />
+          </Pressable>
+
+          <Pressable
+            onPress={onOpenStudyBuddy}
+            accessibilityRole="button"
+            accessibilityLabel="Open study buddy"
+            style={styles.iconAction}
+            hitSlop={6}
+          >
+            <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.primary} />
+          </Pressable>
+
+          {showCertificate && onOpenCertificate ? (
+            <Pressable
+              onPress={onOpenCertificate}
+              accessibilityRole="button"
+              accessibilityLabel="View certificate"
+              style={styles.iconAction}
+              hitSlop={6}
+            >
+              <Ionicons name="ribbon-outline" size={22} color={colors.success} />
+            </Pressable>
+          ) : null}
+
+          {showRate && onOpenRate ? (
+            <Pressable
+              onPress={onOpenRate}
+              accessibilityRole="button"
+              accessibilityLabel="Rate course"
+              style={styles.iconAction}
+              hitSlop={6}
+            >
+              <Ionicons name="star-outline" size={22} color={colors.warning} />
+            </Pressable>
+          ) : null}
         </View>
 
         <Pressable
@@ -74,104 +124,81 @@ export function CoursePlayerBottomBar({
           disabled={!hasNext}
           accessibilityRole="button"
           accessibilityLabel="Next module"
-          style={[styles.navButton, { opacity: hasNext ? 1 : 0.35 }]}
+          style={[
+            styles.navPill,
+            {
+              backgroundColor: hasNext ? colors.primary : colors.border,
+              opacity: hasNext ? 1 : 0.45,
+            },
+          ]}
         >
-          <Text style={[styles.navButtonText, { color: colors.text }]}>Next</Text>
-          <Ionicons name="chevron-forward" size={18} color={colors.text} />
+          <Text
+            style={[
+              styles.navPillText,
+              {
+                color: hasNext ? colors.onPrimary : colors.textSecondary,
+                fontFamily: fontFamily.bold,
+              },
+            ]}
+          >
+            Next
+          </Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={hasNext ? colors.onPrimary : colors.textSecondary}
+          />
         </Pressable>
       </View>
-
-      <View style={styles.actionsRow}>
-        <Pressable
-          onPress={onOpenContents}
-          accessibilityRole="button"
-          accessibilityLabel="Open course contents"
-          style={[styles.actionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-        >
-          <Ionicons name="list" size={18} color={colors.primary} />
-        </Pressable>
-
-        <Pressable
-          onPress={onOpenStudyBuddy}
-          accessibilityRole="button"
-          accessibilityLabel="Open study buddy"
-          style={[styles.actionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-        >
-          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
-        </Pressable>
-
-        {showCertificate && onOpenCertificate ? (
-          <Pressable
-            onPress={onOpenCertificate}
-            accessibilityRole="button"
-            accessibilityLabel="View certificate"
-            style={[styles.actionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-          >
-            <Ionicons name="ribbon-outline" size={18} color={colors.success} />
-          </Pressable>
-        ) : null}
-
-        {showRate && onOpenRate ? (
-          <Pressable
-            onPress={onOpenRate}
-            accessibilityRole="button"
-            accessibilityLabel="Rate course"
-            style={[styles.actionButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-          >
-            <Ionicons name="star-outline" size={18} color={colors.warning} />
-          </Pressable>
-        ) : null}
-      </View>
-    </View>
+    </LiquidGlassView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 10,
-    paddingHorizontal: 16,
-    gap: 10,
+  glassShell: {
+    flex: undefined,
+    height: 'auto',
+    width: '100%',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
   },
-  navRow: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 10,
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
   },
-  navButton: {
+  navPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    minWidth: 72,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    minWidth: 76,
+    justifyContent: 'center',
   },
-  navButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
+  navPillGhost: {
+    borderWidth: 1,
+    backgroundColor: 'transparent',
   },
-  counterPill: {
+  navPillText: {
+    fontSize: fontSize.sm,
+    lineHeight: lineHeight.sm,
+  },
+  centerActions: {
     flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    borderWidth: 1,
+    gap: spacing.lg,
   },
-  counterText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  actionsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  actionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 1,
+  iconAction: {
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },

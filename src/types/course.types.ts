@@ -92,13 +92,18 @@ export type CourseModuleBase = {
   chapterId: number;
   title: string;
   type: CourseModuleType;
+  /** Playable URL or inline HTML body (from API `content_url`). */
   url?: string;
+  /** Raw stored reference from API `browse_url` (S3 key, external URL, embed snippet). */
+  browseUrl?: string;
   contentLengthSeconds?: number;
   status?: CourseModuleStatus;
   sequential?: boolean;
   /** Drip content: false when module is scheduled but not yet released. */
   released?: boolean;
   scheduledOn?: string;
+  /** Non-academic modules bypass course seekable restriction (web parity). */
+  nonAcademic?: boolean;
   summary?: CourseModuleSummary;
 };
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 
 import { Button, EmptyState, ErrorState, LoadingScreen } from '../../../src/components';
@@ -24,6 +24,8 @@ import { needsManualModuleCompletion } from '../../../src/utils/moduleCompletion
 import { clearModuleOpenSentForPublish } from '../../../src/utils/moduleProgressSession';
 import { logProgressDiag } from '../../../src/utils/progressDiagnostics';
 import { useTheme } from '../../../src/theme';
+import { spacing } from '../../../src/theme/spacing';
+import { fontSize, lineHeight } from '../../../src/theme/typography';
 import type { CourseModule } from '../../../src/types/course.types';
 import { PlayerContainer } from '../../../src/components/player/PlayerContainer';
 import {
@@ -55,7 +57,7 @@ export default function CourseDetailScreen() {
       curriculumId?: string;
     }>();
   const dispatch = useAppDispatch();
-  const { colors } = useTheme();
+  const { colors, fontFamily } = useTheme();
 
   const contentsRef = useRef<CourseContentSidebarHandle>(null);
   const studyBuddyRef = useRef<StudyBuddyChatbotHandle>(null);
@@ -386,81 +388,85 @@ export default function CourseDetailScreen() {
 
   return (
     <ScreenLayout scrollable={false} contentContainerStyle={{ paddingBottom: 0 }}>
-      <View style={{ flex: 1 }}>
-        <View
-          style={{
-            paddingBottom: 10,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border,
-          }}
-        >
-          <Text style={{ color: colors.text, fontSize: 18, fontWeight: '800' }} numberOfLines={1}>
-            {currentCourse?.course_name ?? 'Course'}
-          </Text>
-        </View>
-
+      <View style={styles.screen}>
         <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingTop: 12, paddingBottom: 16, gap: 12 }}
-          showsVerticalScrollIndicator={false}
+          style={styles.mainScroll}
+          contentContainerStyle={styles.mainScrollContent}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {activeModule ? (
-            <PlayerContainer
-              coursePublishId={playerContext.coursePublishId}
-              courseId={playerContext.courseId}
-              curriculumId={playerContext.curriculumId}
-              memberId={studentId ?? undefined}
-              acadYearId={authUser?.acad_year_id}
-              module={activeModule}
-              seekable={hierarchy?.seekable !== false}
-              onSectionReady={() => setSectionReady(true)}
-              onModuleComplete={handleModuleComplete}
-            />
-          ) : (
-            <EmptyState
-              title="No playable module"
-              message="This course does not currently contain any published content."
-            />
-          )}
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Text
+              style={[
+                styles.courseTitle,
+                { color: colors.text, fontFamily: fontFamily.bold },
+              ]}
+              numberOfLines={1}
+            >
+              {currentCourse?.course_name ?? 'Course'}
+            </Text>
 
-          {allModules.length > 0 ? (
-            <View style={{ gap: 8 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ color: colors.textSecondary, fontSize: 13, fontWeight: '600' }}>
-                  Course progress
-                </Text>
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '700' }}>
-                  {completedModules}/{allModules.length} · {courseProgressPercent}%
-                </Text>
-              </View>
-              <View
-                style={{
-                  height: 6,
-                  borderRadius: 999,
-                  backgroundColor: colors.border,
-                  overflow: 'hidden',
-                }}
-              >
+            {allModules.length > 0 ? (
+              <View style={styles.progressBlock}>
+                <View style={styles.progressMeta}>
+                  <Text
+                    style={[
+                      styles.progressLabel,
+                      { color: colors.textSecondary, fontFamily: fontFamily.medium },
+                    ]}
+                  >
+                    {activeIndex >= 0
+                      ? `Lesson ${activeIndex + 1} of ${allModules.length}`
+                      : 'Course progress'}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.progressValue,
+                      { color: colors.text, fontFamily: fontFamily.bold },
+                    ]}
+                  >
+                    {completedModules}/{allModules.length} · {courseProgressPercent}%
+                  </Text>
+                </View>
                 <View
-                  style={{
-                    height: '100%',
-                    width: `${courseProgressPercent}%`,
-                    backgroundColor: colors.primary,
-                    borderRadius: 999,
-                  }}
-                />
+                  style={[styles.progressTrack, { backgroundColor: colors.border }]}
+                >
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${courseProgressPercent}%`,
+                        backgroundColor: colors.primary,
+                      },
+                    ]}
+                  />
+                </View>
               </View>
-            </View>
-          ) : null}
+            ) : null}
+          </View>
 
-          {showMarkComplete ? (
-            <Button
-              title={isRecordingPoints ? 'Saving…' : 'Mark as complete'}
-              disabled={isRecordingPoints}
-              onPress={handleMarkComplete}
-            />
-          ) : null}
+          <View style={styles.playerSection}>
+            {activeModule ? (
+              <PlayerContainer
+                coursePublishId={playerContext.coursePublishId}
+                courseId={playerContext.courseId}
+                curriculumId={playerContext.curriculumId}
+                memberId={studentId ?? undefined}
+                acadYearId={authUser?.acad_year_id}
+                module={activeModule}
+                seekable={
+                  activeModule?.nonAcademic ? true : hierarchy?.seekable !== false
+                }
+                onSectionReady={() => setSectionReady(true)}
+                onModuleComplete={handleModuleComplete}
+              />
+            ) : (
+              <EmptyState
+                title="No playable module"
+                message="This course does not currently contain any published content."
+              />
+            )}
+          </View>
 
           <PlayerTabs
             courseDetails={currentCourse}
@@ -471,8 +477,30 @@ export default function CourseDetailScreen() {
             curriculumId={playerContext.curriculumId}
             topicId={hierarchy?.topicId}
             studentName={studentName}
+            variant="underline"
+            layout="flow"
           />
         </ScrollView>
+
+        {showMarkComplete ? (
+          <View
+            style={[
+              styles.markCompleteWrap,
+              {
+                backgroundColor: colors.surface,
+                borderTopColor: colors.border,
+              },
+            ]}
+          >
+            <Button
+              title={isRecordingPoints ? 'Saving…' : 'Mark as complete'}
+              disabled={isRecordingPoints}
+              onPress={handleMarkComplete}
+              fullWidth
+              pill
+            />
+          </View>
+        ) : null}
 
         <CoursePlayerBottomBar
           activeIndex={activeIndex}
@@ -534,3 +562,61 @@ export default function CourseDetailScreen() {
     </ScreenLayout>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  mainScroll: {
+    flex: 1,
+  },
+  mainScrollContent: {
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  header: {
+    paddingBottom: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: spacing.sm,
+  },
+  courseTitle: {
+    fontSize: fontSize.lg,
+    lineHeight: lineHeight.lg,
+    letterSpacing: -0.1,
+  },
+  progressBlock: {
+    gap: spacing.xs,
+  },
+  progressMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  progressLabel: {
+    fontSize: fontSize.xs,
+    lineHeight: lineHeight.xs,
+  },
+  progressValue: {
+    fontSize: fontSize.xs,
+    lineHeight: lineHeight.xs,
+  },
+  progressTrack: {
+    height: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  playerSection: {
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
+  markCompleteWrap: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+});
