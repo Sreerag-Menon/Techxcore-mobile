@@ -10,8 +10,10 @@ import { HTML_EDITOR_MODULE_TYPE, type CourseModule } from '../../types/course.t
 import { useTheme } from '../../theme';
 import { asyncStorage, buildStorageKey } from '../../utils/storage';
 import { moduleTracksPlaybackTime, needsManualModuleCompletion } from '../../utils/moduleCompletion';
+import { isPlaybackModuleComplete } from '../../utils/modulePlaybackComplete';
 import {
   collectProgressPersistBlockers,
+  logNextNavDiag,
   logProgressDiag,
   logProgressGate,
 } from '../../utils/progressDiagnostics';
@@ -19,21 +21,23 @@ import {
   hasSentModuleOpen,
   markModuleOpenSent,
 } from '../../utils/moduleProgressSession';
+import { useICQEngine } from '../../hooks/useICQEngine';
 import {
+  useGetICQAnswersQuery,
+  useInsertICQResultsMutation,
   useSaveModuleProgressMutation,
   type SaveModuleProgressArgs,
 } from '../../redux/api/playerApi';
+import type { ICQAnswerResponse } from '../../types/course.types';
 import { VideoPlayer } from './VideoPlayer';
-import {
-  YoutubeModulePlayer,
-  type YoutubePlaybackSession,
-} from './YoutubeModulePlayer';
+import { YoutubeModulePlayer } from './YoutubeModulePlayer';
 import { VimeoModulePlayer } from './VimeoModulePlayer';
 import { PdfPlayer } from './PdfPlayer';
 import { AudioPlayer } from './AudioPlayer';
 import { HtmlPlayer } from './HtmlPlayer';
 import { HtmlEditorReader } from './HtmlEditorReader';
-import { AssessmentRunner } from './AssessmentRunner';
+import { AssessmentPlayerScreen } from './assessment/AssessmentPlayerScreen';
+import { ICQOverlay } from './quiz/ICQOverlay';
 import { PlayerShell } from './PlayerShell';
 import { DocumentReaderShell } from './DocumentReaderShell';
 import { FullscreenModal } from './FullscreenModal';
@@ -97,6 +101,7 @@ export function PlayerContainer({
   const { colors } = useTheme();
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [saveProgress] = useSaveModuleProgressMutation();
+  const [insertICQResults] = useInsertICQResultsMutation();
   // Capture seek position once per module switch — immune to hierarchy re-renders
   const [frozenSeek, setFrozenSeek] = useState({
     contentId: module.contentId,
@@ -116,9 +121,12 @@ export function PlayerContainer({
   const initialSeekSeconds = frozenSeek.seekSeconds;
   const initialMaxSeconds = frozenSeek.maxSeconds;
   const latestSecondsRef = useRef<number>(Math.max(0, initialSeekSeconds));
+  const latestDurationRef = useRef<number | undefined>(undefined);
   const maxViewedSecondsRef = useRef<number>(
     Math.max(initialSeekSeconds, initialMaxSeconds),
   );
+  const handleCompleteRef = useRef<() => void>(() => {});
+  const completionDispatchedForContentIdRef = useRef<number | null>(null);
   const isAppActiveRef = useRef(true);
   const mountBaselineSecondsRef = useRef(0);
   const playbackAdvancedRef = useRef(false);
@@ -141,15 +149,6 @@ export function PlayerContainer({
     module.provider !== 'youtube' &&
     module.provider !== 'vimeo';
   const [localVideoPlayer, setLocalVideoPlayer] = useState<ExpoVideoPlayer | null>(null);
-  const youtubeSessionRef = useRef<YoutubePlaybackSession>({
-    playing: false,
-    hasStarted: false,
-  });
-
-  const handleYoutubeSessionChange = useCallback((session: YoutubePlaybackSession) => {
-    youtubeSessionRef.current = session;
-  }, []);
-
   useEffect(() => {
     if (!isLocalHostedVideo) {
       setLocalVideoPlayer(null);
@@ -181,6 +180,27 @@ export function PlayerContainer({
     const id = asNumber(curriculumId, Number.NaN);
     return Number.isFinite(id) ? id : undefined;
   }, [curriculumId]);
+
+  const hasICQ = module.testQuestions.length > 0;
+  const { data: icqSavedAnswers } = useGetICQAnswersQuery(
+    {
+      videoUnitId: module.contentId,
+      coursePublishId,
+      courseId: resolvedCourseId,
+      curriculumId: resolvedCurriculumId,
+      questions: module.testQuestions,
+    },
+    { skip: !hasICQ },
+  );
+
+  const icqEngine = useICQEngine({
+    module,
+    savedAnswers: icqSavedAnswers,
+    lastViewedPos: initialSeekSeconds,
+    maxViewedPos: initialMaxSeconds,
+  });
+
+  const icqOverlayVisible = icqEngine.overlay != null;
 
   const progressDiagCtx = useMemo(
     () => ({
@@ -281,8 +301,11 @@ export function PlayerContainer({
   const lastLoggedPlaybackSecond = useRef(-1);
 
   const updatePlaybackPosition = useCallback(
-    (seconds: number) => {
+    (seconds: number, durationSeconds?: number) => {
       const safe = Math.max(0, seconds);
+      if (durationSeconds != null && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+        latestDurationRef.current = durationSeconds;
+      }
       if (safe > mountBaselineSecondsRef.current + 0.5) {
         playbackAdvancedRef.current = true;
       }
@@ -296,6 +319,36 @@ export function PlayerContainer({
           maxViewed: Math.floor(maxViewedSecondsRef.current),
           contentId: module.contentId,
         });
+      }
+
+      const isYoutube = module.type === 'video' && module.provider === 'youtube';
+      const positionComplete = isPlaybackModuleComplete(
+        module,
+        safe,
+        latestDurationRef.current,
+      );
+      if (isYoutube && positionComplete && module.status !== 'completed') {
+        logNextNavDiag('youtube_position_complete_deferred', {
+          contentId: module.contentId,
+          seconds: safe,
+          duration: latestDurationRef.current,
+          contentLengthSeconds: module.contentLengthSeconds,
+          note: 'Waiting for YoutubeModulePlayer onEnd (ended state)',
+        });
+      }
+      if (
+        !isYoutube &&
+        positionComplete &&
+        !manualCompletion &&
+        module.status !== 'completed'
+      ) {
+        logNextNavDiag('position_complete_trigger', {
+          contentId: module.contentId,
+          seconds: safe,
+          duration: latestDurationRef.current,
+          contentLengthSeconds: module.contentLengthSeconds,
+        });
+        handleCompleteRef.current();
       }
 
       if (!canPersistProgressRef.current || !tracksPlaybackTime) return;
@@ -312,7 +365,7 @@ export function PlayerContainer({
         maxViewedPos: maxViewedSecondsRef.current,
       });
     },
-    [module.contentId, persistProgress, tracksPlaybackTime],
+    [manualCompletion, module, persistProgress, tracksPlaybackTime],
   );
 
   useEffect(() => {
@@ -345,8 +398,10 @@ export function PlayerContainer({
     const seek = Math.max(0, initialSeekSeconds);
     const max = Math.max(seek, initialMaxSeconds);
     latestSecondsRef.current = seek;
+    latestDurationRef.current = undefined;
     maxViewedSecondsRef.current = max;
     mountBaselineSecondsRef.current = seek;
+    completionDispatchedForContentIdRef.current = null;
     playbackAdvancedRef.current = false;
     lastLoggedPlaybackSecond.current = -1;
     lastSavedPositionRef.current = -1;
@@ -461,8 +516,28 @@ export function PlayerContainer({
         cause: 'manual_completion_required',
         ...progressDiagCtx,
       });
+      logNextNavDiag('complete_skipped', {
+        cause: 'manual_completion_required',
+        contentId: module.contentId,
+      });
       return;
     }
+    if (module.status === 'completed') {
+      logNextNavDiag('complete_skipped', {
+        cause: 'already_completed',
+        contentId: module.contentId,
+      });
+      return;
+    }
+    if (completionDispatchedForContentIdRef.current === module.contentId) {
+      logNextNavDiag('complete_skipped', {
+        cause: 'already_dispatched_this_session',
+        contentId: module.contentId,
+        note: 'Guards position-based + playToEnd double-fire',
+      });
+      return;
+    }
+    completionDispatchedForContentIdRef.current = module.contentId;
     const positions = tracksPlaybackTime
       ? {
           lastViewedPos: latestSecondsRef.current,
@@ -474,8 +549,69 @@ export function PlayerContainer({
       moduleStatus: module.status,
       ...progressDiagCtx,
     });
+    logNextNavDiag('player_complete_fired', {
+      contentId: module.contentId,
+      moduleType: module.type,
+      provider: module.type === 'video' ? module.provider : undefined,
+      positions,
+      moduleStatus: module.status,
+    });
     onModuleComplete?.(module, positions);
   }, [manualCompletion, module, onModuleComplete, progressDiagCtx, tracksPlaybackTime]);
+
+  handleCompleteRef.current = handleComplete;
+
+  const handleICQAnswered = useCallback(
+    async (response: ICQAnswerResponse, continueToNext = false) => {
+      const q = icqEngine.overlay;
+      if (!q || resolvedMemberId == null || resolvedCurriculumId == null) return;
+      try {
+        await insertICQResults({
+          memberId: resolvedMemberId,
+          curriculumId: resolvedCurriculumId,
+          videoUnitId: module.contentId,
+          testQuestionId: q.id,
+          coursePublishId,
+          testQuestion: q.question,
+          questionType: q.type,
+          testPoints: q.points,
+          correctAnswers: response.correct,
+          incorrectAnswers: response.incorrect,
+          missedAnswers: response.missed,
+          courseId: resolvedCourseId,
+        }).unwrap();
+      } catch {
+        // Allow UI to advance even if result persistence fails.
+      }
+      icqEngine.handleQuestionAnswered(response, continueToNext);
+    },
+    [
+      coursePublishId,
+      icqEngine,
+      insertICQResults,
+      module.contentId,
+      resolvedCourseId,
+      resolvedCurriculumId,
+      resolvedMemberId,
+    ],
+  );
+
+  const handleICQContinue = useCallback(() => {
+    icqEngine.handleContinue(true);
+  }, [icqEngine]);
+
+  const handleICQMaxPosReached = useCallback(() => {
+    icqEngine.handleReachedMaxPos();
+  }, [icqEngine]);
+
+  useEffect(() => {
+    if (!localVideoPlayer || !icqOverlayVisible) return;
+    try {
+      localVideoPlayer.pause();
+    } catch {
+      // Native player may already be released.
+    }
+  }, [icqOverlayVisible, localVideoPlayer]);
 
   const handleFullscreenRequest = useCallback(() => {
     setFrozenSeek((prev) => ({
@@ -507,20 +643,12 @@ export function PlayerContainer({
       };
 
       if (module.provider === 'youtube') {
-        const youtubeSession = youtubeSessionRef.current;
         return (
           <YoutubeModulePlayer
             url={module.url}
-            layout={layout}
-            {...videoSeekProps}
-            autoResumeOnReady={layout === 'fullscreen' && youtubeSession.playing}
-            sessionHasStarted={
-              layout === 'fullscreen' ? youtubeSession.hasStarted : false
-            }
-            onSessionChange={handleYoutubeSessionChange}
+            initialSeekSeconds={initialSeekSeconds}
             onProgress={updatePlaybackPosition}
             onEnd={handleComplete}
-            onFullscreenRequest={onFullscreenRequest}
           />
         );
       }
@@ -550,6 +678,8 @@ export function PlayerContainer({
           onProgress={updatePlaybackPosition}
           onEnd={handleComplete}
           onFullscreenRequest={onFullscreenRequest}
+          maxPlayableSeconds={hasICQ ? icqEngine.adjustedMaxPos : undefined}
+          onMaxPosReached={hasICQ ? handleICQMaxPosReached : undefined}
         />
       );
     }
@@ -610,11 +740,13 @@ export function PlayerContainer({
 
     if (module.type === 'test' || module.type === 'survey') {
       return (
-        <AssessmentRunner
-          testId={module.testId}
-          onComplete={() => {
-            handleComplete();
-          }}
+        <AssessmentPlayerScreen
+          publishId={module.contentId}
+          coursePublishId={coursePublishId}
+          courseId={resolvedCourseId}
+          curriculumId={resolvedCurriculumId}
+          onComplete={handleComplete}
+          onAllViewed={handleComplete}
         />
       );
     }
@@ -628,16 +760,37 @@ export function PlayerContainer({
     );
   };
 
-  const isSingleInstanceVideo = module.type === 'video';
+  const usesCustomFullscreenModal =
+    module.type === 'video' && module.provider !== 'youtube';
 
   const inlinePlayer =
-    isFullscreen && isSingleInstanceVideo
+    isFullscreen && usesCustomFullscreenModal
       ? <View style={styles.inlineVideoPlaceholder} />
       : renderPlayer('inline');
-  const fullscreenPlayer = isFullscreen ? renderPlayer('fullscreen') : null;
+  const fullscreenPlayer =
+    isFullscreen && usesCustomFullscreenModal ? renderPlayer('fullscreen') : null;
+
+  const icqOverlay =
+    icqEngine.overlay != null ? (
+      <ICQOverlay
+        visible={icqOverlayVisible}
+        question={icqEngine.overlay}
+        answerData={icqEngine.getAnswerData(icqEngine.overlay.id)}
+        onAnswered={(response, continueToNext) => {
+          void handleICQAnswered(response, continueToNext);
+        }}
+        onContinue={handleICQContinue}
+        sectionDone={icqEngine.sectionDone}
+      />
+    ) : null;
 
   if (!shellWrapped) {
-    return <View style={styles.assessmentWrap}>{inlinePlayer}</View>;
+    return (
+      <View style={styles.assessmentWrap}>
+        {inlinePlayer}
+        {icqOverlay}
+      </View>
+    );
   }
 
   if (readerWrapped) {
@@ -657,6 +810,7 @@ export function PlayerContainer({
             {fullscreenPlayer}
           </DocumentReaderShell>
         </FullscreenModal>
+        {icqOverlay}
       </>
     );
   }
@@ -676,6 +830,7 @@ export function PlayerContainer({
           {fullscreenPlayer}
         </PlayerShell>
       </FullscreenModal>
+      {icqOverlay}
     </>
   );
 }

@@ -1,16 +1,50 @@
 import { useMemo } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { AssessmentRunner } from '../../../src/components/player/AssessmentRunner';
+import { View } from 'react-native';
+
+import { AssessmentPlayerScreen } from '../../../src/components/player/assessment/AssessmentPlayerScreen';
+import { ErrorState, LoadingScreen } from '../../../src/components';
+import { useGetTraineeAssessmentsListQuery } from '../../../src/redux/api/assessmentApi';
 
 export default function AssessmentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const routeId = useMemo(() => Number(id), [id]);
+  const { data: assessments = [], isLoading, error, refetch } = useGetTraineeAssessmentsListQuery();
 
-  const testId = useMemo(() => Number(id), [id]);
+  const publishId = useMemo(() => {
+    if (!Number.isFinite(routeId) || routeId <= 0) return 0;
+    const byPublish = assessments.find((a) => a.publishId === routeId);
+    if (byPublish) return byPublish.publishId;
+    const byTest = assessments.find((a) => a.testId === routeId);
+    return byTest?.publishId ?? routeId;
+  }, [assessments, routeId]);
+
+  if (isLoading && assessments.length === 0) {
+    return <LoadingScreen />;
+  }
+
+  if (error && publishId <= 0) {
+    return (
+      <ErrorState
+        message="Unable to resolve assessment."
+        onRetry={() => {
+          void refetch();
+        }}
+      />
+    );
+  }
+
+  if (publishId <= 0) {
+    return <ErrorState message="Invalid assessment id." />;
+  }
 
   return (
-    <AssessmentRunner
-      testId={testId}
-      onExit={() => router.replace('/(student)/(tabs)/assessments')}
-    />
+    <View style={{ flex: 1 }}>
+      <AssessmentPlayerScreen
+        publishId={publishId}
+        onComplete={() => router.replace('/(student)/(tabs)/assessments')}
+        onAllViewed={() => router.replace('/(student)/(tabs)/assessments')}
+      />
+    </View>
   );
 }

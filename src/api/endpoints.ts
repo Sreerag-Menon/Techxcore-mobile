@@ -69,6 +69,17 @@ export const ENDPOINTS = {
     ATTEMPT_DETAILS: '/get_trainee_assessment_attempt_details',
     SUMMARY: '/getTestAssessmentSummary',
   },
+  IN_COURSE_QUIZ: {
+    GET_ANSWERS: '/get_test_answer',
+    INSERT_RESULTS: '/insert_test_results',
+  },
+  ASSESSMENT_SESSION: {
+    DETAILS: '/get_student_assessment_details',
+    STUB: '/insert_update_test_assessment_stub',
+    QUESTIONS: '/get_student_assessment_questions',
+    ANSWERS: '/get_student_assessment_question_answers',
+    SUMMARY: '/get_trainee_question_summary',
+  },
   USER: {
     SUMMARY: '/get_member_summary',
     MENU: '/get_member_menu',

@@ -10,6 +10,7 @@ import parentReducer from './slices/parentSlice';
 import playerReducer from './slices/playerSlice';
 import tenantReducer from './slices/tenantSlice';
 import userReducer from './slices/userSlice';
+import { assessmentApi } from './api/assessmentApi';
 import { playerApi } from './api/playerApi';
 
 export const store = configureStore({
@@ -25,6 +26,7 @@ export const store = configureStore({
     parent: parentReducer,
     player: playerReducer,
     [playerApi.reducerPath]: playerApi.reducer,
+    [assessmentApi.reducerPath]: assessmentApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({
@@ -35,7 +37,7 @@ export const store = configureStore({
           'tenant/restoreTenant/fulfilled',
         ],
       },
-    }).concat(playerApi.middleware),
+    }).concat(playerApi.middleware, assessmentApi.middleware),
 });
 
 /** Inferred root-state type */

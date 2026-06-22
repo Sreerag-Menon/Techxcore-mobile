@@ -11,6 +11,7 @@ import {
 } from '../../utils/progressDiagnostics';
 import { logPlayerApiCall, PLAYER_API_ENDPOINTS } from '../../utils/playerApiLog';
 import {
+  asBoolean,
   asNumber,
   asString,
   buildCourseHierarchy,
@@ -18,7 +19,13 @@ import {
   extractArray,
   extractItem,
 } from '../../api/normalize';
-import type { CourseHier, CourseModule } from '../../types/course.types';
+import { QUESTION_TYPE } from '../../constants/questionTypes';
+import type {
+  CourseHier,
+  CourseModule,
+  ICQAnswerData,
+  InCourseQuestion,
+} from '../../types/course.types';
 
 export type SaveModuleProgressArgs = {
   coursePublishId: number;
@@ -228,6 +235,79 @@ function transformHierarchyResponse(
   }
 
   return buildCourseHierarchy(response, coursePublishId);
+}
+
+export type GetICQAnswersArgs = {
+  videoUnitId: number;
+  coursePublishId: number;
+  courseId?: number;
+  curriculumId?: number;
+};
+
+export type InsertICQResultsArgs = {
+  memberId: number;
+  curriculumId: number;
+  videoUnitId: number;
+  testQuestionId: string;
+  coursePublishId: number;
+  testQuestion: string;
+  questionType: number;
+  testPoints: number;
+  correctAnswers: string[];
+  incorrectAnswers: string[];
+  missedAnswers: string[];
+  courseId?: number;
+};
+
+function transformICQAnswersResponse(
+  response: unknown,
+  questions: InCourseQuestion[],
+): Record<string, ICQAnswerData> {
+  const questionMap = new Map(questions.map((q) => [q.id, q]));
+  const answers: Record<string, ICQAnswerData> = {};
+
+  for (const q of questions) {
+    answers[q.id] = {
+      choices: [],
+      answers: [],
+      comments: [],
+      reviewStarts: [],
+      reviewEnds: [],
+    };
+  }
+
+  const rows = extractArray<Record<string, unknown>>(response);
+  for (const row of rows) {
+    const qid = asString(row.test_que_id ?? row.test_question_id ?? row.testQuestionId, '');
+    const q = questionMap.get(qid);
+    if (!q || !answers[qid]) continue;
+
+    const entry = answers[qid];
+    const answerText = asString(row.test_answer, '');
+    const typeE = QUESTION_TYPE;
+
+    if (
+      q.type === typeE.MULTIPLE_CHOICE ||
+      q.type === typeE.SURVEY_MULTIPLE_CHOICE ||
+      q.type === typeE.MULTIPLE_CHOICE_SINGLE
+    ) {
+      entry.choices.push({
+        answerText,
+        answerImage: asString(row.image, '') || undefined,
+      });
+    }
+    if (
+      q.type === typeE.FILL_IN_THE_BLANK ||
+      (q.type === typeE.MULTIPLE_CHOICE && asBoolean(row.is_correct_ans, false))
+    ) {
+      entry.answers.push(answerText);
+    }
+    entry.comments.push(asString(row.answer_comment, ''));
+    entry.reviewStarts.push(asNumber(row.review_start_pos, 0));
+    entry.reviewEnds.push(asNumber(row.review_end_pos, 0));
+  }
+
+  return answers;
 }
 
 function transformCurrentModuleResponse(
@@ -455,7 +535,6 @@ export const playerApi = createApi({
         }
       },
       invalidatesTags: (_result, _error, arg) => [
-        { type: 'Hierarchy', id: arg.coursePublishId },
         { type: 'CurrentModule', id: arg.coursePublishId },
       ],
     }),
@@ -634,6 +713,43 @@ export const playerApi = createApi({
         { type: 'Discourse', id: String(arg.topicId) },
       ],
     }),
+
+    getICQAnswers: builder.query<
+      Record<string, ICQAnswerData>,
+      GetICQAnswersArgs & { questions: InCourseQuestion[] }
+    >({
+      query: ({ videoUnitId, coursePublishId, courseId, curriculumId }) => {
+        const data: Record<string, string> = {
+          videoUnitId: String(videoUnitId),
+          coursePublishId: String(coursePublishId),
+        };
+        if (courseId != null) data.courseId = String(courseId);
+        if (curriculumId != null) data.curriculumId = String(curriculumId);
+        return { url: ENDPOINTS.IN_COURSE_QUIZ.GET_ANSWERS, data };
+      },
+      transformResponse: (response, _meta, arg) =>
+        transformICQAnswersResponse(response, arg.questions),
+    }),
+
+    insertICQResults: builder.mutation<unknown, InsertICQResultsArgs>({
+      query: (args) => ({
+        url: ENDPOINTS.IN_COURSE_QUIZ.INSERT_RESULTS,
+        data: {
+          memberId: String(args.memberId),
+          curriculumId: String(args.curriculumId),
+          videoUnitId: String(args.videoUnitId),
+          testQuestionId: args.testQuestionId,
+          coursePublishId: String(args.coursePublishId),
+          testQuestion: args.testQuestion,
+          questionType: args.questionType,
+          testPoints: args.testPoints,
+          correctAnswers: args.correctAnswers,
+          incorrectAnswers: args.incorrectAnswers,
+          missedAnswers: args.missedAnswers,
+          ...(args.courseId != null ? { courseId: String(args.courseId) } : {}),
+        },
+      }),
+    }),
   }),
 });
 
@@ -653,4 +769,6 @@ export const {
   useGetCertificateQuery,
   useGetDiscourseCommentsQuery,
   usePostDiscourseCommentMutation,
+  useGetICQAnswersQuery,
+  useInsertICQResultsMutation,
 } = playerApi;

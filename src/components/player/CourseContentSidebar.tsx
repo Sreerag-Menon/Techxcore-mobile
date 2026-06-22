@@ -8,6 +8,7 @@ import { Pressable, Text, View } from 'react-native';
 import { BottomSheetSectionList } from '@gorhom/bottom-sheet';
 
 import type { CourseChapter, CourseModule } from '../../types/course.types';
+import { getModuleLockState } from '../../utils/moduleAccess';
 import { useTheme } from '../../theme';
 import {
   GlassBottomSheetModal,
@@ -52,6 +53,8 @@ export const CourseContentSidebar = forwardRef<
     [chapters],
   );
 
+  const flatModules = useMemo(() => sections.flatMap((s) => s.data), [sections]);
+
   return (
     <>
       {showFloatingButton ? (
@@ -88,15 +91,12 @@ export const CourseContentSidebar = forwardRef<
           )}
           renderItem={({ item, index, section }) => {
             const isActive = item.contentId === activeContentId;
-            const flatModules = sections.flatMap((s) => s.data);
-            const flatIndex = flatModules.findIndex((m) => m.contentId === item.contentId);
-            const prev = flatIndex > 0 ? flatModules[flatIndex - 1] : null;
-            const isSequentialLocked =
-              (courseSequential || Boolean(item.sequential)) &&
-              prev != null &&
-              prev.status !== 'completed';
-            const isDripLocked = item.released === false;
-            const isLocked = isSequentialLocked || isDripLocked;
+            const { isLocked, reason: lockReason } = getModuleLockState(
+              item,
+              flatModules,
+              courseSequential,
+            );
+            const isDripLocked = lockReason === 'drip';
 
             return (
               <Pressable

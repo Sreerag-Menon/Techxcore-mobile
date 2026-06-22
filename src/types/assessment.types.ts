@@ -8,6 +8,7 @@ export type AssessmentStatus =
 
 export interface Assessment {
   assessment_id: number;
+  publish_id?: number;
   test_id: number;
   test_name: string;
   test_description?: string;
@@ -20,6 +21,7 @@ export interface Assessment {
   attempts_allowed: number;
   attempts_used: number;
   due_date?: string;
+  start_date?: string;
 }
 
 export interface HomeAssessment {

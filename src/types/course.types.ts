@@ -87,11 +87,44 @@ export type CourseModuleSummary = {
   completedAt?: string;
 };
 
+/** In-course quiz question injected at a playback position (ICQ). */
+export type InCourseQuestion = {
+  id: string;
+  pos: number;
+  type: number;
+  question: string;
+  points: number;
+  image?: string;
+};
+
+export type ICQChoice = {
+  answerText: string;
+  answerImage?: string;
+};
+
+export type ICQAnswerData = {
+  choices: ICQChoice[];
+  answers: string[];
+  comments: string[];
+  reviewStarts: number[];
+  reviewEnds: number[];
+};
+
+export type ICQAnswerResponse = {
+  correct: string[];
+  incorrect: string[];
+  missed: string[];
+};
+
 export type CourseModuleBase = {
   contentId: number;
   chapterId: number;
   title: string;
   type: CourseModuleType;
+  /** Position-based in-course quiz questions (zipped from hierarchy API arrays). */
+  testQuestions: InCourseQuestion[];
+  nextTestQuestionId: string | null;
+  lastAnsweredTestQuestionId: string | null;
   /** Playable URL or inline HTML body (from API `content_url`). */
   url?: string;
   /** Raw stored reference from API `browse_url` (S3 key, external URL, embed snippet). */

@@ -20,7 +20,7 @@ export type VimeoModulePlayerProps = {
   minSeekSeconds?: number;
   layout?: VimeoModulePlayerLayout;
   seekable?: boolean;
-  onProgress?: (seconds: number) => void;
+  onProgress?: (seconds: number, durationSeconds?: number) => void;
   onEnd?: () => void;
   onFullscreenRequest?: () => void;
 };

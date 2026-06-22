@@ -63,11 +63,11 @@ function primaryActionForStatus(status: AssessmentStatus): {
 } {
   switch (status) {
     case 'pending':
-      return { label: 'Start', kind: 'attempt' };
+      return { label: 'Start →', kind: 'attempt' };
     case 'in_progress':
-      return { label: 'Continue', kind: 'attempt' };
+      return { label: 'Continue →', kind: 'attempt' };
     case 'completed':
-      return { label: 'Results', kind: 'results' };
+      return { label: 'View Results', kind: 'results' };
     case 'expired':
     default:
       return { label: 'Expired', kind: 'none' };

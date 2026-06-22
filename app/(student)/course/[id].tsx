@@ -20,9 +20,10 @@ import {
   buildCompletionProgressArgs,
   buildRecordPointsArgs,
 } from '../../../src/services/moduleCompletionFlow';
+import { getModuleLockState, type ModuleLockReason } from '../../../src/utils/moduleAccess';
 import { needsManualModuleCompletion } from '../../../src/utils/moduleCompletion';
 import { clearModuleOpenSentForPublish } from '../../../src/utils/moduleProgressSession';
-import { logProgressDiag } from '../../../src/utils/progressDiagnostics';
+import { logNextNavDiag, logProgressDiag } from '../../../src/utils/progressDiagnostics';
 import { useTheme } from '../../../src/theme';
 import { spacing } from '../../../src/theme/spacing';
 import { fontSize, lineHeight } from '../../../src/theme/typography';
@@ -147,7 +148,9 @@ export default function CourseDetailScreen() {
   const [recordPoints, { isLoading: isRecordingPoints }] = useRecordPointsMutation();
   const creditHourIdRef = useRef(0);
   const completionInFlightRef = useRef(false);
+  const prevNextAccessibleRef = useRef<boolean | null>(null);
   const [sectionReady, setSectionReady] = useState(false);
+  const [locallyCompletedIds, setLocallyCompletedIds] = useState<Set<number>>(new Set());
 
   const studentId = useMemo(() => {
     const id = asNumber(memberId ?? authMemberId, Number.NaN);
@@ -178,6 +181,7 @@ export default function CourseDetailScreen() {
 
   useEffect(() => {
     dispatch(setActiveContentId(null));
+    setLocallyCompletedIds(new Set());
   }, [publishId, dispatch]);
 
   useEffect(() => {
@@ -254,6 +258,12 @@ export default function CourseDetailScreen() {
           moduleStatus: module.status,
           positions,
         });
+        logNextNavDiag('completion_blocked', {
+          blockers,
+          contentId: module.contentId,
+          moduleStatus: module.status,
+          note: 'Next stays disabled until active module is marked completed',
+        });
         return;
       }
 
@@ -282,8 +292,22 @@ export default function CourseDetailScreen() {
         const pointsResult = await recordPoints(pointsArgs).unwrap();
         logProgressDiag('completion:step2_done', { pointsResult });
 
+        // Track locally so the Next button unlocks immediately, surviving stale refetches
+        setLocallyCompletedIds((prev) => {
+          const next = new Set(prev);
+          next.add(module.contentId);
+          logNextNavDiag('local_complete_marked', {
+            contentId: module.contentId,
+            locallyCompletedIds: [...next],
+          });
+          return next;
+        });
+
         const hierResult = await refetchHierarchy();
         const currentResult = await refetchCurrentModule();
+        const refetchedModule = hierResult.data?.chapters
+          .flatMap((c) => c.modules)
+          .find((m) => m.contentId === module.contentId);
         logProgressDiag('completion:refetch_done', {
           hierarchyModuleCount: hierResult.data?.chapters.flatMap((c) => c.modules).length,
           completedCount: hierResult.data?.chapters
@@ -291,8 +315,19 @@ export default function CourseDetailScreen() {
             .filter((m) => m.status === 'completed').length,
           currentModule: currentResult.data,
         });
+        logNextNavDiag('completion_success', {
+          contentId: module.contentId,
+          refetchedStatus: refetchedModule?.status ?? null,
+          hierarchyShowsCompleted: refetchedModule?.status === 'completed',
+          note: 'Next should unlock if courseSequential and next module exists',
+        });
       } catch (error) {
         logProgressDiag('completion:failed', { error, progressArgs, pointsArgs });
+        logNextNavDiag('completion_failed', {
+          contentId: module.contentId,
+          error: String(error),
+          note: 'Next will remain disabled until completion succeeds',
+        });
       } finally {
         completionInFlightRef.current = false;
       }
@@ -312,6 +347,14 @@ export default function CourseDetailScreen() {
 
   const handleModuleComplete = useCallback(
     (module: CourseModule, positions?: { lastViewedPos: number; maxViewedPos: number }) => {
+      logNextNavDiag('complete_requested', {
+        contentId: module.contentId,
+        moduleType: module.type,
+        provider: module.type === 'video' ? module.provider : undefined,
+        moduleStatus: module.status,
+        positions,
+        completionInFlight: completionInFlightRef.current,
+      });
       void completeActiveModule(module, positions);
     },
     [completeActiveModule],
@@ -338,6 +381,67 @@ export default function CourseDetailScreen() {
   const prevModule = activeIndex > 0 ? allModules[activeIndex - 1] : null;
   const nextModule =
     activeIndex >= 0 && activeIndex < allModules.length - 1 ? allModules[activeIndex + 1] : null;
+
+  const courseSequential = hierarchy?.sequential === true;
+
+  const nextModuleLock = useMemo((): { isLocked: boolean; reason: ModuleLockReason } => {
+    if (!nextModule) return { isLocked: true, reason: null };
+    return getModuleLockState(nextModule, allModules, courseSequential, locallyCompletedIds);
+  }, [nextModule, allModules, courseSequential, locallyCompletedIds]);
+
+  const nextModuleAccessible = Boolean(nextModule) && !nextModuleLock.isLocked;
+
+  useEffect(() => {
+    const blockers: string[] = [];
+    if (!nextModule) blockers.push('no_next_module');
+    else if (nextModuleLock.isLocked) blockers.push(`next_locked:${nextModuleLock.reason}`);
+
+    const snapshot = {
+      hasNext: nextModuleAccessible,
+      blockers,
+      courseSequential,
+      activeIndex,
+      active: activeModule
+        ? {
+            contentId: activeModule.contentId,
+            title: activeModule.title,
+            status: activeModule.status,
+            provider: activeModule.type === 'video' ? activeModule.provider : undefined,
+            locallyComplete: locallyCompletedIds.has(activeModule.contentId),
+          }
+        : null,
+      next: nextModule
+        ? {
+            contentId: nextModule.contentId,
+            title: nextModule.title,
+            status: nextModule.status,
+            released: nextModule.released,
+          }
+        : null,
+      locallyCompletedIds: [...locallyCompletedIds],
+      completionInFlight: completionInFlightRef.current,
+    };
+
+    logNextNavDiag('bottom_bar_state', snapshot);
+
+    if (prevNextAccessibleRef.current !== nextModuleAccessible) {
+      logNextNavDiag('bottom_bar_transition', {
+        from: prevNextAccessibleRef.current,
+        to: nextModuleAccessible,
+        ...snapshot,
+      });
+      prevNextAccessibleRef.current = nextModuleAccessible;
+    }
+  }, [
+    activeIndex,
+    activeModule,
+    courseSequential,
+    locallyCompletedIds,
+    nextModule,
+    nextModuleAccessible,
+    nextModuleLock.isLocked,
+    nextModuleLock.reason,
+  ]);
 
   useEffect(() => {
     setSectionReady(false);
@@ -507,9 +611,13 @@ export default function CourseDetailScreen() {
           totalModules={allModules.length}
           completedModules={completedModules}
           hasPrev={Boolean(prevModule)}
-          hasNext={Boolean(nextModule)}
+          hasNext={nextModuleAccessible}
+          nextLockedReason={nextModuleLock.reason}
           onPrev={() => dispatch(setActiveContentId(prevModule?.contentId ?? null))}
-          onNext={() => dispatch(setActiveContentId(nextModule?.contentId ?? null))}
+          onNext={() => {
+            if (!nextModule || !nextModuleAccessible) return;
+            dispatch(setActiveContentId(nextModule.contentId));
+          }}
           onOpenContents={() => contentsRef.current?.open()}
           onOpenStudyBuddy={() => studyBuddyRef.current?.open()}
           onOpenRate={() => ratingRef.current?.open()}

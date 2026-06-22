@@ -32,6 +32,14 @@ export function logProgressDiag(
   console.log(`${PREFIX} ${event}`);
 }
 
+/** Filter console with `nextNav` to trace bottom-bar Next enable/disable. */
+export function logNextNavDiag(
+  event: string,
+  detail?: Record<string, unknown>,
+): void {
+  logProgressDiag(`nextNav:${event}`, detail);
+}
+
 export function logProgressGate(
   gate: string,
   allowed: boolean,

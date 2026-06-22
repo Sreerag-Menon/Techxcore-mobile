@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LiquidGlassView } from '../ui/LiquidGlassView';
+import type { ModuleLockReason } from '../../utils/moduleAccess';
 import { useTheme } from '../../theme';
 import { spacing } from '../../theme/spacing';
 import { fontSize, lineHeight } from '../../theme/typography';
@@ -13,6 +14,7 @@ export type CoursePlayerBottomBarProps = {
   completedModules: number;
   hasPrev: boolean;
   hasNext: boolean;
+  nextLockedReason?: ModuleLockReason;
   onPrev: () => void;
   onNext: () => void;
   onOpenContents: () => void;
@@ -23,9 +25,17 @@ export type CoursePlayerBottomBarProps = {
   showCertificate?: boolean;
 };
 
+function nextAccessibilityLabel(hasNext: boolean, nextLockedReason?: ModuleLockReason): string {
+  if (hasNext) return 'Next module';
+  if (nextLockedReason === 'sequential') return 'Complete current lesson to continue';
+  if (nextLockedReason === 'drip') return 'Next module is not yet available';
+  return 'Next module';
+}
+
 export function CoursePlayerBottomBar({
   hasPrev,
   hasNext,
+  nextLockedReason,
   onPrev,
   onNext,
   onOpenContents,
@@ -123,7 +133,7 @@ export function CoursePlayerBottomBar({
           onPress={onNext}
           disabled={!hasNext}
           accessibilityRole="button"
-          accessibilityLabel="Next module"
+          accessibilityLabel={nextAccessibilityLabel(hasNext, nextLockedReason)}
           style={[
             styles.navPill,
             {

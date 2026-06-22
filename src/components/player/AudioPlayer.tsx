@@ -13,7 +13,7 @@ export type AudioPlayerProps = {
   url: string;
   initialSeekSeconds?: number;
   layout?: AudioPlayerLayout;
-  onProgress?: (seconds: number) => void;
+  onProgress?: (seconds: number, durationSeconds?: number) => void;
   onComplete?: () => void;
 };
 
@@ -41,7 +41,9 @@ export function AudioPlayer({
     const rounded = Math.floor(status.currentTime);
     if (rounded === lastReportedSecondsRef.current) return;
     lastReportedSecondsRef.current = rounded;
-    onProgress(status.currentTime);
+    const dur =
+      Number.isFinite(status.duration) && status.duration > 0 ? status.duration : undefined;
+    onProgress(status.currentTime, dur);
   }, [onProgress, status.currentTime]);
 
   useEffect(() => {

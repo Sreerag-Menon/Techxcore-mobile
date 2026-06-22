@@ -39,10 +39,13 @@ export type VideoPlayerProps = {
   seekable?: boolean;
   /** Shared native player instance (e.g. lifted to PlayerContainer for fullscreen). */
   externalPlayer?: ExpoVideoPlayer;
-  onProgress?: (seconds: number) => void;
+  onProgress?: (seconds: number, durationSeconds?: number) => void;
   onEnd?: () => void;
   onError?: (message: string) => void;
   onFullscreenRequest?: () => void;
+  /** Pause playback when this position is reached (ICQ section ceiling). */
+  maxPlayableSeconds?: number;
+  onMaxPosReached?: () => void;
 };
 
 const CONTROLS_HIDE_MS = 4000;
@@ -65,6 +68,8 @@ export function VideoPlayer({
   onEnd,
   onError,
   onFullscreenRequest,
+  maxPlayableSeconds,
+  onMaxPosReached,
 }: VideoPlayerProps) {
   const { colors } = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -86,6 +91,9 @@ export function VideoPlayer({
   const onProgressRef = useRef(onProgress);
   const onEndRef = useRef(onEnd);
   const onErrorRef = useRef(onError);
+  const onMaxPosReachedRef = useRef(onMaxPosReached);
+  const maxPlayableSecondsRef = useRef(maxPlayableSeconds);
+  const maxPosTriggeredRef = useRef(false);
   const isDraggingRef = useRef(false);
   const maxViewedSecondsRef = useRef(
     Math.max(initialSeekSeconds, initialMaxViewedSeconds, minSeekSeconds),
@@ -98,7 +106,13 @@ export function VideoPlayer({
     onProgressRef.current = onProgress;
     onEndRef.current = onEnd;
     onErrorRef.current = onError;
-  }, [onEnd, onError, onProgress]);
+    onMaxPosReachedRef.current = onMaxPosReached;
+    maxPlayableSecondsRef.current = maxPlayableSeconds;
+  }, [onEnd, onError, onMaxPosReached, onProgress, maxPlayableSeconds]);
+
+  useEffect(() => {
+    maxPosTriggeredRef.current = false;
+  }, [maxPlayableSeconds, url]);
 
   const source: VideoSource = useMemo(() => ({ uri: url }), [url]);
   const internalPlayer = useVideoPlayer(externalPlayer ? null : source, (p) => {
@@ -204,7 +218,13 @@ export function VideoPlayer({
         applyInitialSeek();
       }
     });
-    if (player.status === 'readyToPlay') {
+    let isReadyToPlay = false;
+    try {
+      isReadyToPlay = player.status === 'readyToPlay';
+    } catch {
+      // Native player was released (e.g. PlayerContainer cleanup raced this effect).
+    }
+    if (isReadyToPlay) {
       applyInitialSeek();
     }
     return () => seekSub.remove();
@@ -232,6 +252,23 @@ export function VideoPlayer({
         maxViewedSecondsRef.current,
         payload.currentTime,
       );
+
+      const ceiling = maxPlayableSecondsRef.current;
+      if (
+        ceiling != null &&
+        Number.isFinite(ceiling) &&
+        payload.currentTime >= ceiling - 0.25 &&
+        !maxPosTriggeredRef.current
+      ) {
+        maxPosTriggeredRef.current = true;
+        try {
+          player.pause();
+        } catch {
+          // player may be released
+        }
+        onMaxPosReachedRef.current?.();
+      }
+
       if (!isDraggingRef.current) {
         setCurrentTime(payload.currentTime);
       }
@@ -243,7 +280,9 @@ export function VideoPlayer({
       const now = Date.now();
       if (now - lastProgressAt.current < 900) return;
       lastProgressAt.current = now;
-      onProgressCb(payload.currentTime);
+      const dur =
+        Number.isFinite(player.duration) && player.duration > 0 ? player.duration : undefined;
+      onProgressCb(payload.currentTime, dur);
     });
     const subEnd = player.addListener('playToEnd', () => {
       setIsEnded(true);
@@ -273,7 +312,7 @@ export function VideoPlayer({
       player.currentTime = nextTime;
       setCurrentTime(nextTime);
       setDragTime(nextTime);
-      onProgress?.(nextTime);
+      onProgress?.(nextTime, duration > 0 ? duration : undefined);
       setControlsVisible(true);
       scheduleHideControls();
     },

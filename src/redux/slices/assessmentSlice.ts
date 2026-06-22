@@ -87,13 +87,21 @@ function toOptionalString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeAssessmentStatus(value: unknown): AssessmentStatus | undefined {
+function mapApiAssessmentStatus(value: unknown): AssessmentStatus {
   const normalized = toOptionalString(value)?.toLowerCase().replace(/\s+/g, '_');
-  if (!normalized || !VALID_ASSESSMENT_STATUSES.has(normalized as AssessmentStatus)) {
-    return undefined;
+  if (!normalized) return 'pending';
+  if (normalized === 'yet_to_start' || normalized === 'pending' || normalized === 'not_started') {
+    return 'pending';
   }
-
-  return normalized as AssessmentStatus;
+  if (normalized === 'in_progress' || normalized === 'started') return 'in_progress';
+  if (normalized === 'attended' || normalized === 'completed' || normalized === 'submitted') {
+    return 'completed';
+  }
+  if (normalized === 'closed' || normalized === 'expired') return 'expired';
+  if (VALID_ASSESSMENT_STATUSES.has(normalized as AssessmentStatus)) {
+    return normalized as AssessmentStatus;
+  }
+  return 'pending';
 }
 
 function normalizeHomeAssessment(row: HomeAssessmentApiRow): HomeAssessment {
@@ -109,7 +117,7 @@ function normalizeHomeAssessment(row: HomeAssessmentApiRow): HomeAssessment {
       toOptionalString(row.name) ??
       'Upcoming assessment',
     test_description: toOptionalString(row.test_description),
-    status: normalizeAssessmentStatus(row.status),
+    status: mapApiAssessmentStatus(row.status),
     total_questions: toOptionalNumber(row.total_questions),
     total_marks: toOptionalNumber(row.total_marks),
     duration_minutes: toOptionalNumber(row.duration_minutes),
@@ -131,7 +139,25 @@ export const fetchAssessments = createAsyncThunk<
 >('assessment/fetchAssessments', async (params = {}, { rejectWithValue }) => {
   try {
     const response = await post<unknown>(ENDPOINTS.ASSESSMENT.LIST, params);
-    return extractArray<Assessment>(response, ['assessments', 'tests']);
+    return extractArray<Record<string, unknown>>(response, ['assessments', 'tests']).map(
+      (row) => ({
+        assessment_id: Number(row.assessment_id ?? row.id ?? 0),
+        publish_id: Number(row.id ?? row.publish_id ?? row.assessment_id ?? 0) || undefined,
+        test_id: Number(row.test_id ?? row.testid ?? 0),
+        test_name: String(row.test_name ?? row.name ?? 'Assessment'),
+        test_description: typeof row.test_description === 'string' ? row.test_description : undefined,
+        total_questions: Number(row.total_questions ?? row.tot_questions ?? 0),
+        total_marks: Number(row.total_marks ?? row.tot_credit ?? 0),
+        duration_minutes: Number(row.duration_minutes ?? row.duration ?? 0),
+        status: mapApiAssessmentStatus(row.status ?? row.assessment_status),
+        attempts_allowed: Number(row.attempts_allowed ?? row.tot_test_attempts ?? 0),
+        attempts_used: Number(row.attempts_used ?? row.test_attempts ?? 0),
+        due_date: typeof row.due_date === 'string' ? row.due_date : undefined,
+        start_date: typeof row.start_date === 'string' ? row.start_date : undefined,
+        score: typeof row.score === 'number' ? row.score : undefined,
+        percentage: typeof row.percentage === 'number' ? row.percentage : undefined,
+      }),
+    ) as Assessment[];
   } catch (error) {
     return rejectWithValue(extractErrorMessage(error));
   }

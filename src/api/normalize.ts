@@ -9,6 +9,7 @@ import {
   type CourseHtmlLikeModule,
   type CourseModule,
   type CourseModuleStatus,
+  type InCourseQuestion,
 } from '../types/course.types';
 import {
   resolveHtmlContentRenderMode,
@@ -168,6 +169,50 @@ function parseTraineeModuleStatus(status: unknown): CourseModuleStatus {
   return 'not_started';
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asString(item, '')).filter((s) => s.length > 0);
+}
+
+function toNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => asNumber(item, 0));
+}
+
+function parseInCourseQuestions(raw: UnknownRecord): {
+  testQuestions: InCourseQuestion[];
+  nextTestQuestionId: string | null;
+  lastAnsweredTestQuestionId: string | null;
+} {
+  const ids = toStringArray(raw.test_question_ids);
+  const positions = toNumberArray(raw.test_question_positions);
+  const types = toNumberArray(raw.test_question_types);
+  const points = toNumberArray(raw.test_question_points);
+  const questions = toStringArray(raw.test_questions);
+  const images = Array.isArray(raw.test_question_images)
+    ? (raw.test_question_images as unknown[]).map((img) => asString(img, '') || undefined)
+    : [];
+
+  const testQuestions: InCourseQuestion[] = ids.map((id, i) => ({
+    id,
+    pos: positions[i] ?? 0,
+    type: types[i] ?? 0,
+    question: questions[i] ?? '',
+    points: points[i] ?? 0,
+    image: images[i],
+  }));
+
+  const nextRaw = raw.next_test_question_id ?? raw.nextTestQuestionId;
+  const lastRaw = raw.last_answered_test_question_id ?? raw.lastAnsweredTestQuestionId;
+
+  const nextTestQuestionId =
+    nextRaw != null && String(nextRaw).trim() !== '' ? asString(nextRaw) : null;
+  const lastAnsweredTestQuestionId =
+    lastRaw != null && String(lastRaw).trim() !== '' ? asString(lastRaw) : null;
+
+  return { testQuestions, nextTestQuestionId, lastAnsweredTestQuestionId };
+}
+
 function moduleBase(raw: UnknownRecord, chapterId: number, contentId: number) {
   const title = asString(
     raw.module ?? raw.content_name ?? raw.contentName ?? raw.title ?? raw.name,
@@ -178,6 +223,8 @@ function moduleBase(raw: UnknownRecord, chapterId: number, contentId: number) {
   const status = statusFromFlag
     ? 'completed'
     : parseTraineeModuleStatus(raw.status ?? raw.module_progress);
+
+  const icq = parseInCourseQuestions(raw);
 
   return {
     contentId,
@@ -200,6 +247,7 @@ function moduleBase(raw: UnknownRecord, chapterId: number, contentId: number) {
       ),
       completedAt: asString(raw.completed_at ?? raw.completedAt ?? raw.completed_on, '') || undefined,
     },
+    ...icq,
   } as const;
 }
 
