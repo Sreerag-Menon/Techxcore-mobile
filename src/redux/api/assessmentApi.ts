@@ -5,6 +5,12 @@ import type { AxiosError } from 'axios';
 import { apiClient, post } from '../../api';
 import { asBoolean, asNumber, asString, extractArray, extractItem } from '../../api/normalize';
 import { ENDPOINTS } from '../../api/endpoints';
+import {
+  ASSESSMENT_SESSION_ENDPOINTS,
+  isAssessmentSessionEndpoint,
+  logAssessmentApiCall,
+  parseStubResponse,
+} from '../../utils/assessmentDiagnostics';
 import { QUESTION_TYPE } from '../../constants/questionTypes';
 import type {
   AssessmentAnswer,
@@ -19,29 +25,100 @@ import type {
 type AxiosBaseQueryArgs = { url: string; data?: unknown; isMultipart?: boolean };
 type AxiosBaseQueryError = { status?: number; data?: unknown; message: string };
 
+function toSmallintFlag(value: unknown): 0 | 1 {
+  if (typeof value === 'number') return value === 1 ? 1 : 0;
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return asBoolean(value, false) ? 1 : 0;
+}
+
+function isPostgresError(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return row.severity === 'ERROR' && typeof row.code === 'string';
+}
+
+/** Ensures flagged/attempted are 0|1 for the DB stored procedure (expects smallint). */
+export function serializeTestQuestionsForStub(
+  testQuestions?: Record<string, AssessmentSessionQuestion>,
+): Record<string, AssessmentSessionQuestion> | undefined {
+  if (!testQuestions) return undefined;
+  const out: Record<string, AssessmentSessionQuestion> = {};
+  for (const [id, q] of Object.entries(testQuestions)) {
+    out[id] = {
+      ...q,
+      flagged: toSmallintFlag(q.flagged),
+      attempted: toSmallintFlag(q.attempted),
+    };
+  }
+  return out;
+}
+
 const axiosBaseQuery =
   (): BaseQueryFn<AxiosBaseQueryArgs, unknown, AxiosBaseQueryError> =>
   async ({ url, data, isMultipart }) => {
+    const tracked = isAssessmentSessionEndpoint(url);
+    if (tracked) {
+      logAssessmentApiCall(url, 'request', data);
+    }
     try {
       if (isMultipart && data instanceof FormData) {
         const response = await apiClient.post<unknown>(url, data, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
+        if (tracked) {
+          logAssessmentApiCall(url, 'response', response.data);
+        }
         return { data: response.data };
       }
       const result = await post<unknown>(url, data ?? {});
+      if (tracked) {
+        logAssessmentApiCall(url, 'response', result);
+      }
+      if (url === ASSESSMENT_SESSION_ENDPOINTS.STUB && isPostgresError(result)) {
+        const pgError = result as Record<string, unknown>;
+        return {
+          error: {
+            status: 200,
+            data: result,
+            message: asString(pgError.message, 'Assessment save failed'),
+          },
+        };
+      }
       return { data: result };
     } catch (rawError) {
       const err = rawError as AxiosError;
-      return {
-        error: {
-          status: err.response?.status,
-          data: err.response?.data,
-          message: err.message ?? 'Request failed',
-        },
+      const errorPayload = {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message ?? 'Request failed',
       };
+      if (tracked) {
+        logAssessmentApiCall(url, 'error', errorPayload);
+      }
+      return { error: errorPayload };
     }
   };
+
+function transformStubResponse(response: unknown): AssessmentStubResponse {
+  if (isPostgresError(response)) {
+    throw new Error(asString((response as Record<string, unknown>).message, 'Assessment save failed'));
+  }
+  const parsed = parseStubResponse(response);
+  if (!parsed.accepted) {
+    throw new Error(parsed.statusText || 'Assessment stub rejected');
+  }
+  const row = extractItem<Record<string, unknown>>(response) ?? {};
+  return {
+    StatusValue: parsed.statusValue,
+    StatusText: parsed.statusText,
+    testassessmentid: parsed.testassessmentid,
+    duration: asNumber(row.duration, 0) || undefined,
+    notify_assessment_submit: asNumber(row.notify_assessment_submit, 0) || undefined,
+    progress_status: row.progress_status,
+    course_publish_id: asNumber(row.course_publish_id, 0) || undefined,
+    course_id: asNumber(row.course_id, 0) || undefined,
+  };
+}
 
 function transformSessionDetails(response: unknown, publishId: number): AssessmentSessionDetails {
   const row = extractItem<Record<string, unknown>>(response) ?? {};
@@ -94,8 +171,8 @@ function normalizeQuestion(raw: Record<string, unknown>): AssessmentSessionQuest
     sequence: asNumber(raw.sequence, 0),
     image: asString(raw.image, '') || undefined,
     points: asNumber(raw.points, 0),
-    flagged: asBoolean(raw.flagged, false),
-    attempted: asBoolean(raw.attempted, false),
+    flagged: asBoolean(raw.flagged, false) ? 1 : 0,
+    attempted: asBoolean(raw.attempted, false) ? 1 : 0,
     user_selection: Array.isArray(raw.user_selection)
       ? (raw.user_selection as unknown[]).map((v) => asString(v, ''))
       : [],
@@ -288,6 +365,17 @@ export type UploadAssignmentResponse = {
   integrityCheck?: { overall_verdict?: { can_submit?: boolean } };
 };
 
+export type RecordAssessmentPointsArgs = {
+  videoUnitId: number;     // assessment publishId (contentId in course)
+  coursePublishId: number;
+  courseId: number;
+  curriculumId: number;
+  memberId: number;
+  acadYearId?: number;
+  chapterId?: number;
+  classId?: number;
+};
+
 export const assessmentApi = createApi({
   reducerPath: 'assessmentApi',
   baseQuery: axiosBaseQuery(),
@@ -309,7 +397,7 @@ export const assessmentApi = createApi({
         data: {
           publishId: String(args.publishId),
           studentAssessmentId: String(args.studentAssessmentId),
-          testQuestions: args.testQuestions,
+          testQuestions: serializeTestQuestionsForStub(args.testQuestions),
           testAnswers: args.testAnswers,
           endTime: args.endTime,
           status: args.status,
@@ -322,6 +410,7 @@ export const assessmentApi = createApi({
           ...(args.interval != null ? { interval: String(args.interval) } : {}),
         },
       }),
+      transformResponse: (response) => transformStubResponse(response),
       invalidatesTags: (_r, _e, arg) => [{ type: 'AssessmentSession', id: arg.publishId }],
     }),
 
@@ -382,6 +471,24 @@ export const assessmentApi = createApi({
       }),
     }),
 
+    /** Called after assessment submit — mirrors web's insert_update_trainee_points step. */
+    recordAssessmentPoints: builder.mutation<unknown, RecordAssessmentPointsArgs>({
+      query: (args) => ({
+        url: ENDPOINTS.STUDENT.TRAINEE_POINTS,
+        data: {
+          type: 'T',
+          videoUnitId: String(args.videoUnitId),
+          coursePublishId: String(args.coursePublishId),
+          courseId: String(args.courseId),
+          curriculumId: String(args.curriculumId),
+          memberId: String(args.memberId),
+          ...(args.acadYearId != null ? { acadYearId: String(args.acadYearId) } : {}),
+          ...(args.chapterId != null ? { chapterId: String(args.chapterId) } : {}),
+          ...(args.classId != null ? { classId: String(args.classId) } : {}),
+        },
+      }),
+    }),
+
     getTraineeAssessmentsList: builder.query<
       Array<{ publishId: number; testId: number; name: string }>,
       void
@@ -410,5 +517,6 @@ export const {
   useGetSessionAnswersQuery,
   useGetQuestionSummaryQuery,
   useUploadAssignmentFileMutation,
+  useRecordAssessmentPointsMutation,
   useGetTraineeAssessmentsListQuery,
 } = assessmentApi;

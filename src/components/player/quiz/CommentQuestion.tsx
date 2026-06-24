@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Platform, StyleSheet, Text } from 'react-native';
 
-import Button from '../../Button';
 import Input from '../../Input';
 import { MAX_TEST_COMMENT_LENGTH } from '../../../constants/questionTypes';
 import type { AssessmentSessionQuestion } from '../../../types/assessmentSession.types';
@@ -15,16 +14,35 @@ export type CommentQuestionProps = {
 export function CommentQuestion({ question, onAnswered }: CommentQuestionProps) {
   const { colors } = useTheme();
   const [comment, setComment] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Restore from user_selection on navigation back
+  useEffect(() => {
+    if (question.user_selection?.length > 0 && question.user_selection[0]) {
+      setComment(question.user_selection[0]);
+    } else {
+      setComment('');
+    }
+  }, [question.id, question.user_selection]);
+
+  // Debounce emit — answer goes to state only; DB save requires explicit Save press
+  const handleChange = useCallback(
+    (text: string) => {
+      setComment(text);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        const trimmed = text.trim();
+        onAnswered(trimmed ? [trimmed] : []);
+      }, 400);
+    },
+    [onAnswered],
+  );
 
   useEffect(() => {
-    setComment('');
-  }, [question.id]);
-
-  const handleSubmit = useCallback(() => {
-    const trimmed = comment.trim();
-    if (!trimmed) return;
-    onAnswered([trimmed]);
-  }, [comment, onAnswered]);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   return (
     <KeyboardAvoidingView
@@ -34,7 +52,7 @@ export function CommentQuestion({ question, onAnswered }: CommentQuestionProps) 
       <Input
         label="Your response"
         value={comment}
-        onChangeText={setComment}
+        onChangeText={handleChange}
         multiline
         numberOfLines={6}
         maxLength={MAX_TEST_COMMENT_LENGTH}
@@ -43,7 +61,6 @@ export function CommentQuestion({ question, onAnswered }: CommentQuestionProps) 
       <Text style={[styles.counter, { color: colors.textTertiary }]}>
         {comment.length}/{MAX_TEST_COMMENT_LENGTH}
       </Text>
-      <Button title="Submit" onPress={handleSubmit} disabled={!comment.trim()} fullWidth />
     </KeyboardAvoidingView>
   );
 }

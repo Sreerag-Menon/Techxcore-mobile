@@ -1,0 +1,840 @@
+When selecting a course:
+1.get_trainee_course_publish_hier_v2:
+[
+    {
+        "curriculum_id": "37",
+        "image": "",
+        "course_chapter_details": [
+            {
+                "chapter_id": 79,
+                "name": "course for assesment",
+                "sequence": 1,
+                "description": "",
+                "image": ""
+            }
+        ],
+        "course_module_details": [
+            {
+                "received_on": "Tuesday  ,Jun 23, 2026, 06:52 a",
+                "config_id": null,
+                "duration": null,
+                "id": "2.1",
+                "rating": "0",
+                "received": null,
+                "scheduled_on_timestamp": "2026-06-23T12:22:00",
+                "scheduled_on": "Jun 23, 2026",
+                "status": "In progress",
+                "still_image": "",
+                "content_id": 25,
+                "subject": "asssesment name",
+                "content_length": 5,
+                "aspect_ratio": null,
+                "video_unit_id": 25,
+                "description": "asssesment name",
+                "user_time_zone_id": null,
+                "max_viewed_pos": 0,
+                "last_viewed_pos": 0,
+                "last_answered_test_question_id": null,
+                "next_test_question_id": null,
+                "test_question_ids": [],
+                "test_questions": [],
+                "test_question_images": [],
+                "test_question_positions": [],
+                "test_question_types": [],
+                "test_question_points": [],
+                "curriculum_type": null,
+                "completed_on": "",
+                "completed_on_timestamp": null,
+                "module": "asssesment name",
+                "last_view_time_secs": null,
+                "is_top_row": 0,
+                "is_text_only": 0,
+                "is_url_only": 0,
+                "is_audio": 0,
+                "browse_url": "",
+                "module_iphone_url": "",
+                "video_url": "",
+                "is_local": 0,
+                "original_url": "",
+                "content_source": "",
+                "chapter_id": 79,
+                "sequence": 1,
+                "released": 1,
+                "type": "T",
+                "new_tab": 0,
+                "download_content": 0,
+                "v360d": 0,
+                "stream_type": "video",
+                "module_progress": 0,
+                "is_non_acad": 0,
+                "is_embedurl_only": 0,
+                "questions": null,
+                "available_resolutions": null,
+                "resolution_links": null,
+                "is_html_only": 0,
+                "is_ppt": 0,
+                "total_marks": 4,
+                "content_url": "",
+                "format": "test"
+            }
+        ],
+        "certificate": 0,
+        "sequential": 1,
+        "description": "English",
+        "trainer_name": "Teacher,Don,Sreerag",
+        "skills_covered": null,
+        "current_module_id": "25",
+        "total_module_count": 1,
+        "total_module_completed_count": 0,
+        "points_avaliable": 5,
+        "ponits_rewarded": 0,
+        "name": "English",
+        "seekable": 0,
+        "module_notes": [],
+        "course_progress": null,
+        "iscourse_non_acad": 0,
+        "end_date": "2026-07-03 00:00:00",
+        "courses": [
+            {
+                "name": "couse for assesment",
+                "tags": [],
+                "image": "",
+                "active": true,
+                "goi_id": 2,
+                "status": 1,
+                "rated_on": null,
+                "topic_id": null,
+                "viewable": null,
+                "zone_ids": [],
+                "course_id": 21,
+                "created_by": 1,
+                "created_on": "2026-06-23T06:43:32.082435",
+                "ai_advanced": null,
+                "course_name": "couse for assesment",
+                "description": "",
+                "material_id": null,
+                "standard_id": 14,
+                "trainer_ids": [
+                    4,
+                    28,
+                    30
+                ],
+                "u_course_id": "d9e096d8-2de1-406a-9ec7-5c528e3f9b5b",
+                "trainer_name": "Teacher,Don,Sreerag",
+                "course_skills": [],
+                "curriculum_id": 1,
+                "average_rating": null,
+                "basic_course_id": null,
+                "is_ai_generated": null,
+                "number_of_users": null,
+                "u_course_pub_id": "http://localhost:8081/share/cc48b279-6ba5-4b69-b9a8-9f86e7cdd93b",
+                "academic_year_id": 2,
+                "course_publish_id": 37
+            }
+        ],
+        "course_rating": null,
+        "u_course_pub_id": "cc48b279-6ba5-4b69-b9a8-9f86e7cdd93b",
+        "topic_id": null,
+        "material_id": null,
+        "notify_course_complete": 0
+    }
+]
+
+2.insert_update_trainee_credit_time: for storing time
+---------------------------------------------------------------------------------------------------------------
+on clicking an assessment start button(this resume shows page with assessment question count marks etc):
+3.get_trainee_assessment_attempt_details:
+[
+    {
+        "attempt": [
+            {
+                "started_on": "TUE, 23 JUN | 12:28 PM",
+                "ended_on": null,
+                "elapsed_time": null,
+                "tot_questions": 5,
+                "tot_test_points": 4,
+                "tot_obt_marks": 0,
+                "status": 1,
+                "tot_attempted": 0,
+                "tot_unattempted": 5,
+                "flagged": 0,
+                "tot_correct": 0,
+                "tot_incorrect": 0,
+                "test_assessment_id": 28,
+                "summary": null,
+                "reassign": null,
+                "reassign_date": null,
+                "reassign_count": 0,
+                "grade": "N/A",
+                "description": null,
+                "show_grade": 1,
+                "feedback": null
+            }
+        ],
+        "marks": null,
+        "distribution": null,
+        "reattempt": null,
+        "question_sections": [
+            {
+                "Section 1": {
+                    "section_name": "Section 1",
+                    "section_order": 1,
+                    "total_questions": 5,
+                    "is_limit": 0,
+                    "max_questions": 5,
+                    "content_format": null,
+                    "content": null,
+                    "is_av": 0,
+                    "description": "",
+                    "content_source": null
+                }
+            }
+        ],
+        "view_summary": 1
+    }
+]
+
+4. get_student_assessment_details:
+[
+    {
+        "id": "25",
+        "from_date": "TUE, 23 JUN | 12:22 PM",
+        "to_date": null,
+        "start_date": "",
+        "open_immediately": 0,
+        "test_id": "22",
+        "identifier": "asssesment name",
+        "name": "asssesment name",
+        "description": "",
+        "curriculum_id": "1",
+        "category_id": "14",
+        "credit": "4.00",
+        "status": 1,
+        "subject": "English",
+        "standard": "X",
+        "action": 0,
+        "duration": 0,
+        "elapsed_time": null,
+        "totmarks": "4.00",
+        "obtmarks": "0",
+        "totquestions": "5",
+        "correct": "0",
+        "incorrect": "5",
+        "missed": "5",
+        "attempted": "0",
+        "unattempted": "5",
+        "test_state": 1,
+        "test_state_name": "In Progress",
+        "test_type": 0,
+        "test_type_name": "Open",
+        "multi_attempt": null,
+        "total_duration": 0,
+        "attempt_count": 0,
+        "latest_assessment_id": "28",
+        "timer_from": "2026-06-23T06:52:00.000Z",
+        "timer_to": "2026-07-02T18:30:00.000Z",
+        "course_publish_id": "37",
+        "tot_test_attempts": 1,
+        "test_attempts": "1",
+        "course_id": "21",
+        "reassign": 0,
+        "reassign_date": null,
+        "reassign_count": 0,
+        "rand_question": 0,
+        "feedback": null,
+        "grouped_test": 0,
+        "flagged": 0,
+        "classbatch_id": "1",
+        "summary_viewable": 1,
+        "start_from": "2026-06-23T01:22:00.000Z",
+        "question_pool": 0,
+        "has_certificate": 0,
+        "test_percentage": null,
+        "certificate_status": 0,
+        "certificate_config_id": null,
+        "summary_report": 1,
+        "section_hide": 0,
+        "is_evaluated": null,
+        "ai_proctor": 0,
+        "violation_count": 1,
+        "warning_count": 1,
+        "current_time": "2026-06-23T10:21:40.416Z",
+        "difference_time": -32380416
+    }
+]
+---------------------------------------------------------------------------------------------------------------
+
+On clicking resume button from that page(assessment starts with first question):
+5. insert_update_test_assessment_stub: payload->attendedDuration
+: 
+"00:00:00"
+courseId
+: 
+"21"
+coursePublishId
+: 
+"37"
+endTime
+: 
+"2026/06/23 15:56:26"
+groupedTest
+: 
+0
+publishId
+: 
+"25"
+status
+: 
+0
+studentAssessmentId
+: 
+"0"
+testAnswers
+: 
+{}
+testQuestions
+: 
+{}
+
+response:
+[
+    {
+        "StatusValue": 1,
+        "StatusText": "Test assessment Answer Details Updated Successfully",
+        "testassessmentid": "28",
+        "duration": 0,
+        "notify_assessment_submit": 0,
+        "proctorResumeState": {
+            "nextSnapshotIndex": 0,
+            "nextViolationIndex": 0,
+            "totalViolationCount": 0
+        },
+        "course_publish_id": "37",
+        "course_id": "21"
+    }
+]
+
+6.get_student_assessment_questions:
+[
+    {
+        "identifier": "",
+        "questions": [
+            {
+                "section_order": 1,
+                "section_name": "Section 1",
+                "description": "",
+                "content_format": null,
+                "content": null,
+                "content_source": null,
+                "max_questions": "5",
+                "is_limit": 0,
+                "questions_attempted": 0,
+                "questions": [
+                    {
+                        "id": 79,
+                        "question": "short answer",
+                        "type": 3,
+                        "points": 0,
+                        "order": 4,
+                        "flagged": 0,
+                        "flagged_on": null,
+                        "attempted": 0,
+                        "attempted_on": null,
+                        "user_selection": null,
+                        "sequence": 4,
+                        "image": "",
+                        "match_selection": null,
+                        "question_content": null,
+                        "section_order": 1,
+                        "section_name": "Section 1",
+                        "math_symbol": 0,
+                        "content_format": null,
+                        "content": "",
+                        "description": "",
+                        "content_source": "",
+                        "is_record": 0,
+                        "std_assignment_type": null,
+                        "assignment_url": null,
+                        "assignment_content": null,
+                        "asgnmt_content_format": null,
+                        "asgnmt_content_source": null,
+                        "max_selection": 0
+                    },
+                    {
+                        "id": 76,
+                        "question": "question 1",
+                        "type": 0,
+                        "points": 2,
+                        "order": 1,
+                        "flagged": 0,
+                        "flagged_on": null,
+                        "attempted": 0,
+                        "attempted_on": null,
+                        "user_selection": null,
+                        "sequence": 1,
+                        "image": "",
+                        "match_selection": null,
+                        "question_content": null,
+                        "section_order": 1,
+                        "section_name": "Section 1",
+                        "math_symbol": 0,
+                        "content_format": null,
+                        "content": "",
+                        "description": "",
+                        "content_source": "",
+                        "is_record": 0,
+                        "std_assignment_type": null,
+                        "assignment_url": null,
+                        "assignment_content": null,
+                        "asgnmt_content_format": null,
+                        "asgnmt_content_source": null,
+                        "max_selection": 2
+                    },
+                    {
+                        "id": 77,
+                        "question": "Question 2",
+                        "type": 0,
+                        "points": 2,
+                        "order": 2,
+                        "flagged": 0,
+                        "flagged_on": null,
+                        "attempted": 0,
+                        "attempted_on": null,
+                        "user_selection": null,
+                        "sequence": 2,
+                        "image": "",
+                        "match_selection": null,
+                        "question_content": null,
+                        "section_order": 1,
+                        "section_name": "Section 1",
+                        "math_symbol": 0,
+                        "content_format": 2,
+                        "content": "https://s3.us-east-1.amazonaws.com/content.develop.ilearningengines.net/contents/1782197362063-History%203.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=AKIA4KFSVG23ULA23FHN%2F20260623%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20260623T103004Z&X-Amz-Expires=600&X-Amz-Signature=4e5cbe20484e269b27ab8bcdf225cc43bb645cf70130f3348e0067b217c3a887&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject",
+                        "description": "",
+                        "content_source": "aws",
+                        "is_record": 0,
+                        "std_assignment_type": null,
+                        "assignment_url": null,
+                        "assignment_content": null,
+                        "asgnmt_content_format": null,
+                        "asgnmt_content_source": null,
+                        "max_selection": 1
+                    },
+                    {
+                        "id": 78,
+                        "question": "This is the fill in the blanks of ___ 2nd one",
+                        "type": 1,
+                        "points": 0,
+                        "order": 3,
+                        "flagged": 0,
+                        "flagged_on": null,
+                        "attempted": 0,
+                        "attempted_on": null,
+                        "user_selection": null,
+                        "sequence": 3,
+                        "image": "",
+                        "match_selection": null,
+                        "question_content": null,
+                        "section_order": 1,
+                        "section_name": "Section 1",
+                        "math_symbol": 0,
+                        "content_format": null,
+                        "content": "",
+                        "description": "",
+                        "content_source": "",
+                        "is_record": 0,
+                        "std_assignment_type": null,
+                        "assignment_url": null,
+                        "assignment_content": null,
+                        "asgnmt_content_format": null,
+                        "asgnmt_content_source": null,
+                        "max_selection": 0
+                    },
+                    {
+                        "id": 80,
+                        "question": "single option is  available",
+                        "type": 6,
+                        "points": 0,
+                        "order": 5,
+                        "flagged": 0,
+                        "flagged_on": null,
+                        "attempted": 0,
+                        "attempted_on": null,
+                        "user_selection": null,
+                        "sequence": 5,
+                        "image": "",
+                        "match_selection": null,
+                        "question_content": null,
+                        "section_order": 1,
+                        "section_name": "Section 1",
+                        "math_symbol": 0,
+                        "content_format": null,
+                        "content": "",
+                        "description": "<p><s></s></p>",
+                        "content_source": "",
+                        "is_record": 0,
+                        "std_assignment_type": null,
+                        "assignment_url": null,
+                        "assignment_content": null,
+                        "asgnmt_content_format": null,
+                        "asgnmt_content_source": null,
+                        "max_selection": 1
+                    }
+                ]
+            }
+        ],
+        "rand_question": 0,
+        "rand_section": null,
+        "question_pool": 0
+    }
+]
+
+7. get_student_assessment_question_answers:
+[
+    {
+        "question_id": 76,
+        "is_correct_ans": null,
+        "answer": "Option 1",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 76,
+        "is_correct_ans": null,
+        "answer": "option 2(correct ans)",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 76,
+        "is_correct_ans": null,
+        "answer": "option 3(correct ans)",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 77,
+        "is_correct_ans": null,
+        "answer": "Option 1",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 77,
+        "is_correct_ans": null,
+        "answer": "Option 2(correct ans)",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 78,
+        "is_correct_ans": null,
+        "answer": "this is correct",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 78,
+        "is_correct_ans": null,
+        "answer": "not correct",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 80,
+        "is_correct_ans": null,
+        "answer": "correct option",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    },
+    {
+        "question_id": 80,
+        "is_correct_ans": null,
+        "answer": "incorrect",
+        "answer_comment": null,
+        "image": "",
+        "question": "",
+        "question_code": "",
+        "answer_code": "",
+        "math_symbol": 0
+    }
+]
+
+------------------------------------------------------------------------------------
+On clicking save:
+8.insert_update_test_assessment_stub: payload->
+attendedDuration
+: 
+"00:03:59"
+courseId
+: 
+"21"
+coursePublishId
+: 
+"37"
+endTime
+: 
+"2026/06/23 16:04:02"
+groupedTest
+: 
+0
+publishId
+: 
+"25"
+status
+: 
+1
+studentAssessmentId
+: 
+"28"
+testAnswers
+: 
+{76: {,…}, 77: {,…},…}
+76
+: 
+{,…}
+answers
+: 
+[]
+choices
+: 
+[{answerText: "Option 1", answerImage: ""}, {answerText: "option 2(correct ans)", answerImage: ""},…]
+0
+: 
+{answerText: "Option 1", answerImage: ""}
+1
+: 
+{answerText: "option 2(correct ans)", answerImage: ""}
+2
+: 
+{answerText: "option 3(correct ans)", answerImage: ""}
+comments
+: 
+[null, null, null]
+0
+: 
+null
+1
+: 
+null
+2
+: 
+null
+questions
+: 
+[]
+reviewEnds
+: 
+[null, null, null]
+0
+: 
+null
+1
+: 
+null
+2
+: 
+null
+reviewStarts
+: 
+[null, null, null]
+0
+: 
+null
+1
+: 
+null
+2
+: 
+null
+77
+: 
+{,…}
+78
+: 
+{choices: [], answers: ["this is correct", "not correct"], comments: [null, null],…}
+79
+: 
+{choices: [], answers: [], comments: [], reviewStarts: [], reviewEnds: [], questions: []}
+80
+: 
+{,…}
+testQuestions
+: 
+{76: {id: 76, question: "question 1", type: 0, points: 2, order: 1, flagged: 0, flagged_on: null,…},…}
+76
+: 
+{id: 76, question: "question 1", type: 0, points: 2, order: 1, flagged: 0, flagged_on: null,…}
+asgnmt_content_format
+: 
+null
+asgnmt_content_source
+: 
+null
+assignment_content
+: 
+null
+assignment_url
+: 
+null
+attempted
+: 
+1
+attempted_on
+: 
+null
+content
+: 
+""
+content_format
+: 
+null
+content_source
+: 
+""
+description
+: 
+""
+flagged
+: 
+0
+flagged_on
+: 
+null
+id
+: 
+76
+image
+: 
+""
+is_record
+: 
+0
+match_selection
+: 
+[]
+math_symbol
+: 
+0
+max_selection
+: 
+2
+order
+: 
+1
+points
+: 
+2
+question
+: 
+"question 1"
+question_content
+: 
+null
+section_name
+: 
+"Section 1"
+section_order
+: 
+1
+sequence
+: 
+1
+std_assignment_type
+: 
+null
+type
+: 
+0
+user_selection
+: 
+[1, 2]
+77
+: 
+{id: 77, question: "Question 2", type: 0, points: 2, order: 2, flagged: 0, flagged_on: null,…}
+78
+: 
+{id: 78, question: "This is the fill in the blanks of ___ 2nd one", type: 1, points: 0, order: 3,…}
+79
+: 
+{id: 79, question: "short answer", type: 3, points: 0, order: 4, flagged: 0, flagged_on: null,…}
+80
+: 
+{id: 80, question: "single option is available", type: 6, points: 0, order: 5, flagged: 0,…}
+
+-------------------------------------------------------------------------------------------------------
+On clicking submit
+9. same call as save(insert_update_test_assessment_stub)
+10.insert_update_trainee_points->payload->acadYearId
+: 
+"2"
+chapterId
+: 
+"79"
+classId
+: 
+"17"
+courseId
+: 
+"21"
+coursePublishId
+: 
+"37"
+curriculumId
+: 
+"37"
+memberId
+: 
+"5"
+type
+: 
+"T"
+videoUnitId
+: 
+"25"
+
+
+Response:
+{
+    "statusvalue": 1,
+    "statustext": "Module completion recorded",
+    "reward_level": "Rookie",
+    "modules": "1",
+    "credits_earned": "0",
+    "credits_balance": "23",
+    "progress_status": 1,
+    "course_publish_id": "37",
+    "course_id": "21"
+}

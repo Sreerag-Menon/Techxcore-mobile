@@ -29,8 +29,8 @@ function toSessionQuestion(question: InCourseQuestion): AssessmentSessionQuestio
     sequence: question.pos,
     image: question.image,
     points: question.points,
-    flagged: false,
-    attempted: false,
+    flagged: 0,
+    attempted: 0,
     user_selection: [],
   };
 }
@@ -90,7 +90,6 @@ export function ICQOverlay({
       return (
         <FillBlankQuestion
           question={sessionQuestion}
-          answerData={assessmentAnswer}
           onAnswered={handleFitbAnswered}
         />
       );

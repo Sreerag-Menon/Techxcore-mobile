@@ -269,10 +269,10 @@ export default function CourseDetailScreen() {
 
       completionInFlightRef.current = true;
       const ctx = {
-        coursePublishId: publishId,
-        courseId: ctxCourseId,
-        curriculumId: ctxCurriculumId,
-        memberId: studentId,
+        coursePublishId: publishId!,
+        courseId: ctxCourseId!,
+        curriculumId: ctxCurriculumId!,
+        memberId: studentId!,
         acadYearId: authUser?.acad_year_id,
       };
 

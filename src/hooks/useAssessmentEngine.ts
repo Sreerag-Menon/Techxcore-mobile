@@ -7,6 +7,8 @@ import {
   useGetQuestionSummaryQuery,
   useGetSessionAnswersQuery,
   useGetSessionQuestionsQuery,
+  useRecordAssessmentPointsMutation,
+  type RecordAssessmentPointsArgs,
 } from '../redux/api/assessmentApi';
 import type {
   AssessmentAnswer,
@@ -23,6 +25,12 @@ export type UseAssessmentEngineArgs = {
   publishId: number;
   coursePublishId?: number;
   courseId?: number;
+  /** Needed for insert_update_trainee_points after submit (in-course context only). */
+  curriculumId?: number;
+  memberId?: number;
+  acadYearId?: number;
+  chapterId?: number;
+  classId?: number;
 };
 
 function buildQuestionMaps(sections: AssessmentSection[]) {
@@ -44,18 +52,38 @@ function countStats(testQuestions: Record<string, AssessmentSessionQuestion>) {
   let flagged = 0;
   let unattempted = 0;
   for (const q of Object.values(testQuestions)) {
-    const isAttempted = Boolean(q.attempted) || (q.user_selection?.length ?? 0) > 0;
+    const isAttempted = q.attempted === 1 || (q.user_selection?.length ?? 0) > 0;
     if (isAttempted) attempted += 1;
     else unattempted += 1;
-    if (Boolean(q.flagged)) flagged += 1;
+    if (q.flagged === 1) flagged += 1;
   }
   return { attempted, flagged, unattempted };
+}
+
+/** Deep-clone the testQuestions map so we can snapshot it for Cancel. */
+function cloneQuestions(
+  q: Record<string, AssessmentSessionQuestion>,
+): Record<string, AssessmentSessionQuestion> {
+  const out: Record<string, AssessmentSessionQuestion> = {};
+  for (const [id, val] of Object.entries(q)) {
+    out[id] = {
+      ...val,
+      user_selection: [...(val.user_selection ?? [])],
+      match_selection: val.match_selection ? val.match_selection.map((m) => ({ ...m })) : [],
+    };
+  }
+  return out;
 }
 
 export function useAssessmentEngine({
   publishId,
   coursePublishId,
   courseId,
+  curriculumId,
+  memberId,
+  acadYearId,
+  chapterId,
+  classId,
 }: UseAssessmentEngineArgs) {
   const { data: sessionDetails, isLoading: detailsLoading, error: detailsError } =
     useGetAssessmentSessionDetailsQuery({ publishId });
@@ -69,9 +97,18 @@ export function useAssessmentEngine({
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [summary, setSummary] = useState<QuestionSummary[]>([]);
   const [createStub, { isLoading: stubLoading }] = useCreateUpdateAssessmentStubMutation();
+  const [recordPoints] = useRecordAssessmentPointsMutation();
   const startTimeRef = useRef<Date>(new Date());
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmittedRef = useRef(false);
+
+  /**
+   * Snapshot of testQuestions at the time of the last successful Save.
+   * Cancel restores this snapshot, discarding unsaved in-state changes.
+   */
+  const lastSavedQuestionsRef = useRef<Record<string, AssessmentSessionQuestion>>({});
+  // Tracks whether any answer changed since last save
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const shouldLoadQuestions = studentAssessmentId > 0;
   const { data: sections = [], isLoading: questionsLoading } = useGetSessionQuestionsQuery(
@@ -127,6 +164,9 @@ export function useAssessmentEngine({
     setSelectedItem((prev) => prev ?? maps.questionIds[0] ?? null);
     setPhase('answering');
     startTimeRef.current = new Date();
+    // Initial state is the "last saved" state (loaded from server)
+    lastSavedQuestionsRef.current = cloneQuestions(maps.testQuestions);
+    setHasUnsavedChanges(false);
   }, [answerRows, sections, shouldLoadQuestions]);
 
   const attendedDuration = useCallback(
@@ -186,7 +226,31 @@ export function useAssessmentEngine({
 
   const save = useCallback(async () => {
     await createStub(buildStubArgs(1)).unwrap();
-  }, [buildStubArgs, createStub]);
+    // Snapshot current state as "last saved"
+    lastSavedQuestionsRef.current = cloneQuestions(testQuestions);
+    setHasUnsavedChanges(false);
+  }, [buildStubArgs, createStub, testQuestions]);
+
+  /** Discard unsaved in-state answers, restore the last saved snapshot. */
+  const cancel = useCallback(() => {
+    const snapshot = lastSavedQuestionsRef.current;
+    if (Object.keys(snapshot).length === 0) return;
+
+    setTestQuestions(cloneQuestions(snapshot));
+    // Rebuild questionSection questions from snapshot
+    setQuestionSection((prev) =>
+      prev.map((section) => ({
+        ...section,
+        questions: section.questions.map((q) =>
+          snapshot[q.id] ? { ...snapshot[q.id] } : q,
+        ),
+        questions_attempted: section.questions.filter((q) =>
+          snapshot[q.id]?.attempted === 1 || (snapshot[q.id]?.user_selection?.length ?? 0) > 0,
+        ).length,
+      })),
+    );
+    setHasUnsavedChanges(false);
+  }, []);
 
   const submit = useCallback(async () => {
     if (autoSubmittedRef.current) return;
@@ -196,6 +260,31 @@ export function useAssessmentEngine({
       const rsp = await createStub(buildStubArgs(3)).unwrap();
       const id = rsp.testassessmentid ?? studentAssessmentId;
       setStudentAssessmentId(id);
+
+      // Mirror web: call insert_update_trainee_points after submit (in-course context only)
+      const resolvedCoursePublishId = coursePublishId ?? sessionDetails?.coursePublishId;
+      const resolvedCourseId = courseId ?? sessionDetails?.courseId;
+      if (
+        resolvedCoursePublishId &&
+        resolvedCourseId &&
+        curriculumId &&
+        memberId
+      ) {
+        const pointsArgs: RecordAssessmentPointsArgs = {
+          videoUnitId: publishId,
+          coursePublishId: resolvedCoursePublishId,
+          courseId: resolvedCourseId,
+          curriculumId,
+          memberId,
+          acadYearId,
+          chapterId,
+          classId,
+        };
+        void recordPoints(pointsArgs).catch(() => {
+          // Non-blocking — don't let points failure block summary
+        });
+      }
+
       if (sessionDetails?.summary_viewable) {
         setPhase('summary');
       }
@@ -203,7 +292,21 @@ export function useAssessmentEngine({
       autoSubmittedRef.current = false;
       setPhase('answering');
     }
-  }, [buildStubArgs, createStub, sessionDetails?.summary_viewable, studentAssessmentId]);
+  }, [
+    buildStubArgs,
+    courseId,
+    coursePublishId,
+    createStub,
+    curriculumId,
+    memberId,
+    acadYearId,
+    chapterId,
+    classId,
+    publishId,
+    recordPoints,
+    sessionDetails,
+    studentAssessmentId,
+  ]);
 
   const exit = useCallback(async () => {
     try {
@@ -217,7 +320,7 @@ export function useAssessmentEngine({
     setTestQuestions((prev) => {
       const q = prev[questionId];
       if (!q) return prev;
-      const nextFlagged = !Boolean(q.flagged);
+      const nextFlagged = q.flagged !== 1;
       return {
         ...prev,
         [questionId]: {
@@ -275,12 +378,14 @@ export function useAssessmentEngine({
             const questions = section.questions.map((item) =>
               item.id === questionId ? nextQuestion : item,
             );
-            const questions_attempted = questions.filter((item) => Boolean(item.attempted)).length;
+            const questions_attempted = questions.filter((item) => item.attempted === 1).length;
             return { ...section, questions, questions_attempted };
           }),
         );
         return next;
       });
+      // Mark unsaved after any answer change
+      setHasUnsavedChanges(true);
     },
     [],
   );
@@ -326,9 +431,11 @@ export function useAssessmentEngine({
     summary,
     stats,
     remainingMs,
+    hasUnsavedChanges,
     startAssessment,
     updateElapsedTime,
     save,
+    cancel,
     submit,
     exit,
     flag,

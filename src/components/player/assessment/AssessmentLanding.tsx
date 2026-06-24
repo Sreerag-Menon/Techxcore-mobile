@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Button from '../../Button';
@@ -15,27 +17,6 @@ export type AssessmentLandingProps = {
   onStart: () => void;
 };
 
-function StatChip({
-  label,
-  value,
-  index,
-}: {
-  label: string;
-  value: string;
-  index: number;
-}) {
-  const { colors } = useTheme();
-  return (
-    <Animated.View
-      entering={FadeInDown.springify().damping(20).stiffness(300).delay(index * 40)}
-      style={[styles.chip, { backgroundColor: colors.surface, borderColor: colors.border }]}
-    >
-      <Text style={[styles.chipValue, { color: colors.text }]}>{value}</Text>
-      <Text style={[styles.chipLabel, { color: colors.textSecondary }]}>{label}</Text>
-    </Animated.View>
-  );
-}
-
 function statusColor(status: string, colors: ReturnType<typeof useTheme>['colors']) {
   if (status === 'In Progress') return colors.warning;
   if (status === 'Attended' || status === 'Completed') return colors.success;
@@ -43,18 +24,63 @@ function statusColor(status: string, colors: ReturnType<typeof useTheme>['colors
   return colors.primary;
 }
 
+function ReadinessItem({
+  icon,
+  label,
+  value,
+  index,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  index: number;
+}) {
+  const { colors } = useTheme();
+  return (
+    <Animated.View
+      entering={FadeInDown.springify().damping(20).stiffness(300).delay(200 + index * 60)}
+      style={[readyStyles.row, { borderColor: colors.border }]}
+    >
+      <View style={[readyStyles.iconWrap, { backgroundColor: colors.primaryLight }]}>
+        <Ionicons name={icon} size={18} color={colors.primary} />
+      </View>
+      <View style={readyStyles.text}>
+        <Text style={[readyStyles.label, { color: colors.textSecondary }]}>{label}</Text>
+        <Text style={[readyStyles.value, { color: colors.text }]}>{value}</Text>
+      </View>
+      <Ionicons name="checkmark-circle" size={18} color="#22c55e" />
+    </Animated.View>
+  );
+}
+
+const readyStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  iconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // @ts-ignore
+    borderCurve: 'continuous',
+  },
+  text: { flex: 1, gap: 2 },
+  label: { fontSize: 12, fontWeight: '600' },
+  value: { fontSize: 14, fontWeight: '700' },
+});
+
 export function AssessmentLanding({ details, loading, onStart }: AssessmentLandingProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   const durationMinutes = details.duration > 0 ? Math.round(details.duration / 60000) : 0;
-
-  const chips = [
-    { label: 'Questions', value: String(details.totQuestions) },
-    { label: 'Marks', value: String(details.totMarks) },
-    ...(durationMinutes > 0 ? [{ label: 'Duration', value: formatDuration(durationMinutes) }] : []),
-    { label: 'Attempts', value: String(details.attemptCount) },
-  ];
 
   const canStart =
     details.testStateName === 'Yet to Start' ||
@@ -64,34 +90,28 @@ export function AssessmentLanding({ details, loading, onStart }: AssessmentLandi
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 88 }]}>
-        <Animated.View entering={FadeInDown.springify().damping(20)}>
-          <View style={styles.categoryRow}>
-            <Ionicons name="clipboard-outline" size={18} color={colors.primary} />
-            <Text style={[styles.category, { color: colors.primary }]}>Assessment</Text>
-          </View>
-          <Text style={[styles.title, { color: colors.text }]}>{details.title}</Text>
-          {details.description ? (
-            <Text style={[styles.body, { color: colors.textSecondary }]}>{details.description}</Text>
-          ) : null}
-        </Animated.View>
-
-        <View style={styles.chipRow}>
-          {chips.map((chip, index) => (
-            <StatChip key={chip.label} {...chip} index={index} />
-          ))}
-        </View>
-
+        {/* Hero Header */}
         <Animated.View
-          entering={FadeInDown.springify().damping(20).delay(160)}
-          style={[styles.metaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          entering={FadeInDown.springify().damping(20)}
+          style={styles.heroWrap}
         >
-          {details.dateFrom ? (
-            <MetaRow label="Available from" value={details.dateFrom} />
-          ) : null}
-          {details.dateTo ? <MetaRow label="Available until" value={details.dateTo} /> : null}
-          <View style={styles.statusRow}>
-            <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>Status</Text>
-            <View style={[styles.statusBadge, { backgroundColor: `${statusColor(details.testStateName, colors)}22` }]}>
+          <LinearGradient
+            colors={[colors.primaryLight, `${colors.primary}18`, 'transparent']}
+            style={styles.heroBg}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
+          <View style={styles.heroContent}>
+            <View style={[styles.heroIcon, { backgroundColor: `${colors.primary}22` }]}>
+              <Ionicons name="clipboard" size={32} color={colors.primary} />
+            </View>
+            <Text style={[styles.title, { color: colors.text }]}>{details.title}</Text>
+            {details.description ? (
+              <Text style={[styles.body, { color: colors.textSecondary }]} numberOfLines={3}>
+                {details.description}
+              </Text>
+            ) : null}
+            <View style={[styles.statusBadge, { backgroundColor: `${statusColor(details.testStateName, colors)}18` }]}>
               <View
                 style={[styles.statusDot, { backgroundColor: statusColor(details.testStateName, colors) }]}
               />
@@ -102,26 +122,117 @@ export function AssessmentLanding({ details, loading, onStart }: AssessmentLandi
           </View>
         </Animated.View>
 
+        {/* Stat Chips */}
+        <View style={styles.chipRow}>
+          <StatChip
+            icon="help-circle-outline"
+            label="Questions"
+            value={String(details.totQuestions)}
+            index={0}
+          />
+          <StatChip
+            icon="ribbon-outline"
+            label="Total Marks"
+            value={String(details.totMarks)}
+            index={1}
+          />
+          {durationMinutes > 0 ? (
+            <StatChip
+              icon="timer-outline"
+              label="Duration"
+              value={formatDuration(durationMinutes)}
+              index={2}
+            />
+          ) : null}
+          <StatChip
+            icon="refresh-outline"
+            label="Attempts"
+            value={String(details.attemptCount)}
+            index={3}
+          />
+        </View>
+
+        {/* Readiness Checklist */}
+        <Animated.View
+          entering={FadeInDown.springify().damping(20).delay(180)}
+          style={[styles.readinessCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+        >
+          <Text style={[styles.readinessTitle, { color: colors.text }]}>Before you begin</Text>
+          <ReadinessItem
+            icon="help-circle-outline"
+            label="Questions"
+            value={`${details.totQuestions} questions to answer`}
+            index={0}
+          />
+          {durationMinutes > 0 ? (
+            <ReadinessItem
+              icon="timer-outline"
+              label="Time limit"
+              value={`${formatDuration(durationMinutes)} total`}
+              index={1}
+            />
+          ) : (
+            <ReadinessItem
+              icon="timer-outline"
+              label="Time limit"
+              value="No time limit"
+              index={1}
+            />
+          )}
+          <ReadinessItem
+            icon="ribbon-outline"
+            label="Marks"
+            value={`${details.totMarks} marks available`}
+            index={2}
+          />
+          {details.dateFrom ? (
+            <ReadinessItem
+              icon="calendar-outline"
+              label="Available from"
+              value={details.dateFrom}
+              index={3}
+            />
+          ) : null}
+          {details.dateTo ? (
+            <ReadinessItem
+              icon="calendar-outline"
+              label="Available until"
+              value={details.dateTo}
+              index={4}
+            />
+          ) : null}
+        </Animated.View>
+
+        {/* Instructions */}
         {details.description ? (
-          <Pressable
-            onPress={() => setInstructionsOpen((v) => !v)}
-            style={[styles.instructionsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          <Animated.View
+            entering={FadeInDown.springify().damping(20).delay(300)}
           >
-            <View style={styles.instructionsHeader}>
-              <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
-              <Text style={[styles.instructionsTitle, { color: colors.text }]}>Instructions</Text>
-              <Ionicons
-                name={instructionsOpen ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={colors.textSecondary}
-              />
-            </View>
-            {instructionsOpen ? (
-              <Text style={[styles.instructionsBody, { color: colors.textSecondary }]}>
-                {details.description}
-              </Text>
-            ) : null}
-          </Pressable>
+            <Pressable
+              onPress={() => {
+                void Haptics.selectionAsync();
+                setInstructionsOpen((v) => !v);
+              }}
+              style={[styles.instructionsCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            >
+              <View style={styles.instructionsHeader}>
+                <View style={[styles.instructionIcon, { backgroundColor: `${colors.primary}15` }]}>
+                  <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+                </View>
+                <Text style={[styles.instructionsTitle, { color: colors.text }]}>Instructions</Text>
+                <Ionicons
+                  name={instructionsOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.textSecondary}
+                />
+              </View>
+              {instructionsOpen ? (
+                <Text style={[styles.instructionsBody, { color: colors.textSecondary }]}>
+                  {details.description}
+                </Text>
+              ) : null}
+            </Pressable>
+          </Animated.View>
         ) : null}
       </ScrollView>
 
@@ -137,7 +248,10 @@ export function AssessmentLanding({ details, loading, onStart }: AssessmentLandi
       >
         <Button
           title={details.testStateName === 'In Progress' ? 'Continue assessment' : 'Start assessment'}
-          onPress={onStart}
+          onPress={() => {
+            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            onStart();
+          }}
           loading={loading}
           disabled={!canStart}
           fullWidth
@@ -147,57 +261,102 @@ export function AssessmentLanding({ details, loading, onStart }: AssessmentLandi
   );
 }
 
-function MetaRow({ label, value }: { label: string; value: string }) {
+// ─── Stat Chip ───
+function StatChip({
+  icon,
+  label,
+  value,
+  index,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  index: number;
+}) {
   const { colors } = useTheme();
   return (
-    <View style={styles.metaRow}>
-      <Text style={[styles.metaLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.metaValue, { color: colors.text }]}>{value}</Text>
-    </View>
+    <Animated.View
+      entering={FadeInDown.springify().damping(20).stiffness(300).delay(80 + index * 50)}
+      style={[chipStyles.chip, { backgroundColor: colors.surface, borderColor: colors.border }]}
+    >
+      <Ionicons name={icon} size={16} color={colors.primary} />
+      <Text style={[chipStyles.value, { color: colors.text }]}>{value}</Text>
+      <Text style={[chipStyles.label, { color: colors.textSecondary }]}>{label}</Text>
+    </Animated.View>
   );
 }
+
+const chipStyles = StyleSheet.create({
+  chip: {
+    minWidth: '46%',
+    flexGrow: 1,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 4,
+    // @ts-ignore
+    borderCurve: 'continuous',
+  },
+  value: { fontSize: 20, fontWeight: '900' },
+  label: { fontSize: 11, fontWeight: '600' },
+});
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
   container: { padding: 16, gap: 16 },
-  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  category: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
-  title: { fontSize: 28, fontWeight: '900', lineHeight: 34, marginBottom: 8 },
-  body: { fontSize: 15, lineHeight: 22 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chip: {
-    minWidth: '30%',
-    flexGrow: 1,
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    // @ts-ignore
-    borderCurve: 'continuous',
+  heroWrap: {
+    borderRadius: 24,
+    overflow: 'hidden',
+    position: 'relative',
   },
-  chipValue: { fontSize: 18, fontWeight: '800' },
-  chipLabel: { fontSize: 12, marginTop: 2 },
-  metaCard: {
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
+  heroBg: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.6,
+  },
+  heroContent: {
+    padding: 24,
+    paddingTop: 32,
+    alignItems: 'center',
     gap: 10,
+  },
+  heroIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
     // @ts-ignore
     borderCurve: 'continuous',
   },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
-  metaLabel: { fontSize: 14 },
-  metaValue: { fontSize: 14, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
-  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  title: { fontSize: 24, fontWeight: '900', lineHeight: 30, textAlign: 'center' },
+  body: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 999,
+    marginTop: 4,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   statusText: { fontSize: 13, fontWeight: '700' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  readinessCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    // @ts-ignore
+    borderCurve: 'continuous',
+  },
+  readinessTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
   instructionsCard: {
     padding: 14,
     borderRadius: 16,
@@ -206,7 +365,14 @@ const styles = StyleSheet.create({
     // @ts-ignore
     borderCurve: 'continuous',
   },
-  instructionsHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  instructionsHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  instructionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   instructionsTitle: { flex: 1, fontSize: 15, fontWeight: '700' },
   instructionsBody: { fontSize: 14, lineHeight: 21 },
   ctaWrap: {

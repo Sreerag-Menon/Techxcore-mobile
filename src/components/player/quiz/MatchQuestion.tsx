@@ -3,7 +3,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import Button from '../../Button';
 import type {
   AssessmentAnswer,
   AssessmentSessionQuestion,
@@ -43,12 +42,11 @@ export function MatchQuestion({ question, answerData, onAnswered }: MatchQuestio
 
   const [selectedLeft, setSelectedLeft] = useState<string | null>(null);
   const [pairs, setPairs] = useState<PairMap>({});
-  const [submitted, setSubmitted] = useState(false);
 
+  // Restore pairs from match_selection on navigation back
   useEffect(() => {
     setSelectedLeft(null);
     setPairs({});
-    setSubmitted(false);
 
     if (question.match_selection?.length) {
       const restored: PairMap = {};
@@ -60,6 +58,18 @@ export function MatchQuestion({ question, answerData, onAnswered }: MatchQuestio
     }
   }, [leftItems, question.id, question.match_selection]);
 
+  /** Emit current pairs to parent (state-only, no DB). */
+  const emitPairs = useCallback(
+    (currentPairs: PairMap) => {
+      const matchSelection: MatchSelectionItem[] = leftItems.map(
+        (left) => currentPairs[left.questionCode] ?? { answerCode: '', answer: '' },
+      );
+      const selection = matchSelection.map((p) => p.answer).filter(Boolean);
+      onAnswered(selection, matchSelection);
+    },
+    [leftItems, onAnswered],
+  );
+
   const pairedRightCodes = useMemo(
     () => new Set(Object.values(pairs).filter(Boolean).map((p) => p!.answerCode)),
     [pairs],
@@ -67,24 +77,24 @@ export function MatchQuestion({ question, answerData, onAnswered }: MatchQuestio
 
   const handleLeftPress = useCallback(
     (questionCode: string) => {
-      if (submitted) return;
       void Haptics.selectionAsync();
       if (pairs[questionCode]) {
         setPairs((prev) => {
           const next = { ...prev };
           delete next[questionCode];
+          emitPairs(next);
           return next;
         });
         return;
       }
       setSelectedLeft((prev) => (prev === questionCode ? null : questionCode));
     },
-    [pairs, submitted],
+    [emitPairs, pairs],
   );
 
   const handleRightPress = useCallback(
     (item: MatchAnswerItem) => {
-      if (submitted || !selectedLeft) return;
+      if (!selectedLeft) return;
       void Haptics.selectionAsync();
 
       const existingLeft = Object.entries(pairs).find(([, v]) => v?.answerCode === item.answerCode)?.[0];
@@ -92,24 +102,13 @@ export function MatchQuestion({ question, answerData, onAnswered }: MatchQuestio
         const next = { ...prev };
         if (existingLeft) delete next[existingLeft];
         next[selectedLeft] = item;
+        emitPairs(next);
         return next;
       });
       setSelectedLeft(null);
     },
-    [pairs, selectedLeft, submitted],
+    [emitPairs, pairs, selectedLeft],
   );
-
-  const handleSubmit = useCallback(() => {
-    if (submitted) return;
-    const matchSelection: MatchSelectionItem[] = leftItems.map(
-      (left) => pairs[left.questionCode] ?? { answerCode: '', answer: '' },
-    );
-    const selection = matchSelection.map((p) => p.answer).filter(Boolean);
-    setSubmitted(true);
-    onAnswered(selection, matchSelection);
-  }, [leftItems, onAnswered, pairs, submitted]);
-
-  const allPaired = leftItems.length > 0 && leftItems.every((l) => Boolean(pairs[l.questionCode]?.answer));
 
   return (
     <View style={styles.container}>
@@ -151,7 +150,7 @@ export function MatchQuestion({ question, answerData, onAnswered }: MatchQuestio
               <Pressable
                 key={right.answerCode}
                 onPress={() => handleRightPress(right)}
-                disabled={!selectedLeft || submitted}
+                disabled={!selectedLeft}
                 style={[
                   styles.item,
                   {
@@ -170,10 +169,8 @@ export function MatchQuestion({ question, answerData, onAnswered }: MatchQuestio
       </View>
 
       <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
-        Tap a question, then tap an answer to pair. Tap a paired item to unpair.
+        Tap a question, then tap an answer to pair. Tap a paired question to unpair.
       </Text>
-
-      <Button title="Submit" onPress={handleSubmit} disabled={!allPaired || submitted} fullWidth />
     </View>
   );
 }

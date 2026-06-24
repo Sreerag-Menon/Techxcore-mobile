@@ -17,6 +17,7 @@ import {
   logProgressDiag,
   logProgressGate,
 } from '../../utils/progressDiagnostics';
+import { logAssessmentDiag } from '../../utils/assessmentDiagnostics';
 import {
   hasSentModuleOpen,
   markModuleOpenSent,
@@ -180,6 +181,26 @@ export function PlayerContainer({
     const id = asNumber(curriculumId, Number.NaN);
     return Number.isFinite(id) ? id : undefined;
   }, [curriculumId]);
+
+  useEffect(() => {
+    if (module.type !== 'test' && module.type !== 'survey') return;
+    logAssessmentDiag('in_course:mount', {
+      publishId: module.contentId,
+      moduleContentId: module.contentId,
+      moduleTestId: module.testId,
+      coursePublishId,
+      courseId: resolvedCourseId,
+      curriculumId: resolvedCurriculumId,
+      moduleType: module.type,
+    });
+  }, [
+    coursePublishId,
+    module.contentId,
+    module.testId,
+    module.type,
+    resolvedCourseId,
+    resolvedCurriculumId,
+  ]);
 
   const hasICQ = module.testQuestions.length > 0;
   const { data: icqSavedAnswers } = useGetICQAnswersQuery(
@@ -745,6 +766,8 @@ export function PlayerContainer({
           coursePublishId={coursePublishId}
           courseId={resolvedCourseId}
           curriculumId={resolvedCurriculumId}
+          memberId={resolvedMemberId}
+          acadYearId={acadYearId}
           onComplete={handleComplete}
           onAllViewed={handleComplete}
         />

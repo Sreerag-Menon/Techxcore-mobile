@@ -7,11 +7,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 
-import Button from '../../Button';
-import {
-  MAX_TEST_COMMENT_LENGTH,
-  QUESTION_TYPE,
-} from '../../../constants/questionTypes';
+import { MAX_TEST_COMMENT_LENGTH, QUESTION_TYPE } from '../../../constants/questionTypes';
 import type { AssessmentAnswer, AssessmentSessionQuestion } from '../../../types/assessmentSession.types';
 import { useTheme } from '../../../theme';
 
@@ -103,7 +99,6 @@ function ChoiceRow({
 export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }: MCQQuestionProps) {
   const { colors } = useTheme();
   const [selected, setSelected] = useState<number[]>([]);
-  const [submitted, setSubmitted] = useState(false);
 
   const isSurvey = question.type === QUESTION_TYPE.SURVEY_MULTIPLE_CHOICE;
   const isSingleSelect =
@@ -111,15 +106,38 @@ export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }:
     (question.type === QUESTION_TYPE.MULTIPLE_CHOICE && question.max_selection === 1);
   const maxSelection = question.max_selection ?? 0;
 
+  // Restore from user_selection (web stores 0-based indices as strings, e.g. ["0","1"])
   useEffect(() => {
-    setSelected([]);
-    setSubmitted(false);
-  }, [question.id]);
+    if (question.user_selection?.length > 0 && answerData.choices.length > 0) {
+      const restoredIndices = question.user_selection
+        .map((sel) => {
+          // Numeric string = index (web format)
+          const num = Number(sel);
+          if (!isNaN(num) && num >= 0 && num < answerData.choices.length) return num;
+          // Fallback: match by answer text (legacy format)
+          return answerData.choices.findIndex((c) => c.answerText === sel);
+        })
+        .filter((i) => i >= 0);
+      setSelected(restoredIndices);
+    } else {
+      setSelected([]);
+    }
+  }, [question.id, question.user_selection, answerData.choices]);
+
+  /**
+   * Emit selection as 0-based index strings — matches web payload:
+   *   user_selection: ["1", "2"] (indices of chosen options)
+   */
+  const emitSelection = useCallback(
+    (indices: number[], autoAdvance = false) => {
+      const selection = indices.map((i) => String(i));
+      onAnswered(selection, autoAdvance);
+    },
+    [onAnswered],
+  );
 
   const handleChoicePress = useCallback(
     (index: number) => {
-      if (submitted) return;
-
       setSelected((prev) => {
         const idx = prev.indexOf(index);
         let next: number[];
@@ -134,31 +152,22 @@ export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }:
           next = [...prev, index];
         }
 
+        // For survey, auto-advance after first selection
         if (isSurvey && next.length > 0) {
-          const selection = next
-            .map((i) => answerData.choices[i]?.answerText ?? '')
-            .filter(Boolean);
           queueMicrotask(() => {
-            setSubmitted(true);
-            onAnswered(selection, true);
+            emitSelection(next, true);
             setTimeout(() => onAutoAdvance?.(), 300);
           });
+        } else {
+          // Emit on every change — answer is saved in state, not DB
+          queueMicrotask(() => emitSelection(next));
         }
 
         return next;
       });
     },
-    [answerData.choices, isSingleSelect, isSurvey, maxSelection, onAnswered, onAutoAdvance, submitted],
+    [emitSelection, isSingleSelect, isSurvey, maxSelection, onAutoAdvance],
   );
-
-  const handleSubmit = useCallback(() => {
-    if (submitted || selected.length === 0) return;
-    setSubmitted(true);
-    const selection = selected
-      .map((i) => answerData.choices[i]?.answerText ?? '')
-      .filter(Boolean);
-    onAnswered(selection);
-  }, [answerData.choices, onAnswered, selected, submitted]);
 
   const selectionHint = useMemo(() => {
     if (isSurvey || isSingleSelect) return null;
@@ -179,19 +188,11 @@ export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }:
             index={i}
             choice={choice}
             isSelected={selected.includes(i)}
-            disabled={submitted}
+            disabled={false}
             onPress={() => handleChoicePress(i)}
           />
         ))}
       </View>
-      {!isSurvey ? (
-        <Button
-          title="Submit"
-          onPress={handleSubmit}
-          disabled={selected.length === 0 || submitted}
-          fullWidth
-        />
-      ) : null}
     </View>
   );
 }

@@ -4,8 +4,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-import Button from '../../Button';
 import Input from '../../Input';
+import Button from '../../Button';
 import { useUploadAssignmentFileMutation } from '../../../redux/api/assessmentApi';
 import type { AssessmentSessionQuestion } from '../../../types/assessmentSession.types';
 import { useTheme } from '../../../theme';
@@ -28,6 +28,7 @@ export function AssignmentQuestion({ question, onAnswered }: AssignmentQuestionP
   const existingSelection = question.user_selection ?? [];
   const isSubmitted = existingSelection.length > 0 && Boolean(existingSelection[0]);
 
+  // Restore file info on navigation back
   useEffect(() => {
     if (isSubmitted) {
       setFileName(existingSelection[0] ?? '');
@@ -69,25 +70,31 @@ export function AssignmentQuestion({ question, onAnswered }: AssignmentQuestionP
       const rsp = await uploadAssignment({ formData }).unwrap();
       progress.value = withTiming(1, { duration: 300 });
 
-      setFileName(rsp.fileName ?? asset.name);
-      setFileUrl(rsp.fileUrl ?? '');
+      const uploadedName = rsp.fileName ?? asset.name;
+      const uploadedUrl = rsp.fileUrl ?? '';
+      setFileName(uploadedName);
+      setFileUrl(uploadedUrl);
       setUploadProgress(1);
+
+      // Auto-emit to state after successful upload — no Submit button needed
+      onAnswered([uploadedName, note.trim(), '', uploadedUrl]);
     } catch {
       setFileName('');
       setFileUrl('');
     } finally {
       setUploading(false);
     }
-  }, [progress, uploadAssignment]);
+  }, [note, onAnswered, progress, uploadAssignment]);
 
-  const handleSubmit = useCallback(() => {
-    if (!fileName && !note.trim()) return;
-    onAnswered([fileName, note.trim(), '', fileUrl]);
-  }, [fileName, fileUrl, note, onAnswered]);
-
-  const canSubmit = useMemo(
-    () => Boolean(fileName || note.trim()) && !uploading,
-    [fileName, note, uploading],
+  // Emit when note changes (file already uploaded)
+  const handleNoteChange = useCallback(
+    (text: string) => {
+      setNote(text);
+      if (fileName) {
+        onAnswered([fileName, text.trim(), '', fileUrl]);
+      }
+    },
+    [fileName, fileUrl, onAnswered],
   );
 
   if (isSubmitted) {
@@ -102,7 +109,9 @@ export function AssignmentQuestion({ question, onAnswered }: AssignmentQuestionP
             ) : null}
           </View>
         </View>
-        <Text style={{ color: colors.textSecondary, fontSize: 13 }}>Assignment submitted</Text>
+        <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+          Assignment submitted — press Save to persist or Cancel to discard.
+        </Text>
       </View>
     );
   }
@@ -130,7 +139,7 @@ export function AssignmentQuestion({ question, onAnswered }: AssignmentQuestionP
           <Text style={[styles.fileName, { color: colors.text, flex: 1 }]} numberOfLines={1}>
             {fileName}
           </Text>
-          <Pressable onPress={() => { setFileName(''); setFileUrl(''); }}>
+          <Pressable onPress={() => { setFileName(''); setFileUrl(''); onAnswered([]); }}>
             <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
           </Pressable>
         </View>
@@ -139,13 +148,11 @@ export function AssignmentQuestion({ question, onAnswered }: AssignmentQuestionP
       <Input
         label="Notes (optional)"
         value={note}
-        onChangeText={setNote}
+        onChangeText={handleNoteChange}
         multiline
         numberOfLines={4}
         placeholder="Add a comment about your submission"
       />
-
-      <Button title="Submit assignment" onPress={handleSubmit} disabled={!canSubmit} fullWidth />
 
       {uploading ? <ActivityIndicator color={colors.primary} /> : null}
     </View>

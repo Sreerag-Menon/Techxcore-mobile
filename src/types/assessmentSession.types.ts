@@ -47,8 +47,8 @@ export type AssessmentSessionQuestion = {
   sequence: number;
   image?: string;
   points: number;
-  flagged: boolean | number;
-  attempted: boolean | number;
+  flagged: number;
+  attempted: number;
   user_selection: string[];
   match_selection?: MatchSelectionItem[];
   content?: string;

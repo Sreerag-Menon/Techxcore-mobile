@@ -28,11 +28,10 @@ export const TENANT_REGISTRY: TenantRegistryEntry[] = [
   {
     code: 'LOCAL',
     displayName: 'Local Development',
-    baseUrl: 'https://5180-103-161-55-2.ngrok-free.app',
+    baseUrl: 'https://moneyless-vengeful-alumni.ngrok-free.dev',
     active: true,
   },
   // Example production entry — replace with real institution URLs:
-  // {
   //   code: 'SCHOOL01',
   //   displayName: 'Example School LMS',
   //   baseUrl: 'https://school.example.com',
