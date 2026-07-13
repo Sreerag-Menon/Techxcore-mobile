@@ -108,33 +108,12 @@ export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }:
 
   // Restore from user_selection (web stores 0-based indices as strings, e.g. ["0","1"])
   useEffect(() => {
-    if (question.user_selection?.length > 0 && answerData.choices.length > 0) {
-      const restoredIndices = question.user_selection
-        .map((sel) => {
-          // Numeric string = index (web format)
-          const num = Number(sel);
-          if (!isNaN(num) && num >= 0 && num < answerData.choices.length) return num;
-          // Fallback: match by answer text (legacy format)
-          return answerData.choices.findIndex((c) => c.answerText === sel);
-        })
-        .filter((i) => i >= 0);
-      setSelected(restoredIndices);
-    } else {
-      setSelected([]);
-    }
-  }, [question.id, question.user_selection, answerData.choices]);
-
-  /**
-   * Emit selection as 0-based index strings — matches web payload:
-   *   user_selection: ["1", "2"] (indices of chosen options)
-   */
-  const emitSelection = useCallback(
-    (indices: number[], autoAdvance = false) => {
-      const selection = indices.map((i) => String(i));
-      onAnswered(selection, autoAdvance);
-    },
-    [onAnswered],
-  );
+    const restored = (question.user_selection ?? [])
+      .map(Number)
+      .filter((n) => !Number.isNaN(n) && n >= 0 && n < answerData.choices.length);
+    setSelected(restored);
+    setSubmitted(restored.length > 0);
+  }, [answerData.choices.length, question.id, question.user_selection]);
 
   const handleChoicePress = useCallback(
     (index: number) => {
@@ -154,6 +133,7 @@ export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }:
 
         // For survey, auto-advance after first selection
         if (isSurvey && next.length > 0) {
+          const selection = next.map((i) => String(i));
           queueMicrotask(() => {
             emitSelection(next, true);
             setTimeout(() => onAutoAdvance?.(), 300);
@@ -166,8 +146,15 @@ export function MCQQuestion({ question, answerData, onAnswered, onAutoAdvance }:
         return next;
       });
     },
-    [emitSelection, isSingleSelect, isSurvey, maxSelection, onAutoAdvance],
+    [isSingleSelect, isSurvey, maxSelection, onAnswered, onAutoAdvance, submitted],
   );
+
+  const handleSubmit = useCallback(() => {
+    if (submitted || selected.length === 0) return;
+    setSubmitted(true);
+    const selection = selected.map((i) => String(i));
+    onAnswered(selection);
+  }, [onAnswered, selected, submitted]);
 
   const selectionHint = useMemo(() => {
     if (isSurvey || isSingleSelect) return null;

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, EmptyState, ErrorState, LoadingScreen } from '../../../src/components';
+import { EmptyState, ErrorState, LoadingScreen } from '../../../src/components';
 import { ScreenLayout } from '../../../src/layouts';
 import { asNumber, extractItem } from '../../../src/api/normalize';
 import { resolveCoursePlayerContext } from '../../../src/services/coursePlayerContext';
@@ -59,6 +60,9 @@ export default function CourseDetailScreen() {
     }>();
   const dispatch = useAppDispatch();
   const { colors, fontFamily } = useTheme();
+  const insets = useSafeAreaInsets();
+  // bar height (64) + gap (12) + safe-area bottom
+  const barClearance = 64 + 12 + insets.bottom + 16;
 
   const contentsRef = useRef<CourseContentSidebarHandle>(null);
   const studyBuddyRef = useRef<StudyBuddyChatbotHandle>(null);
@@ -495,7 +499,7 @@ export default function CourseDetailScreen() {
       <View style={styles.screen}>
         <ScrollView
           style={styles.mainScroll}
-          contentContainerStyle={styles.mainScrollContent}
+          contentContainerStyle={[styles.mainScrollContent, { paddingBottom: barClearance }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -586,26 +590,6 @@ export default function CourseDetailScreen() {
           />
         </ScrollView>
 
-        {showMarkComplete ? (
-          <View
-            style={[
-              styles.markCompleteWrap,
-              {
-                backgroundColor: colors.surface,
-                borderTopColor: colors.border,
-              },
-            ]}
-          >
-            <Button
-              title={isRecordingPoints ? 'Saving…' : 'Mark as complete'}
-              disabled={isRecordingPoints}
-              onPress={handleMarkComplete}
-              fullWidth
-              pill
-            />
-          </View>
-        ) : null}
-
         <CoursePlayerBottomBar
           activeIndex={activeIndex}
           totalModules={allModules.length}
@@ -624,6 +608,8 @@ export default function CourseDetailScreen() {
           onOpenCertificate={() => certificateRef.current?.open()}
           showRate={isCourseCompleted}
           showCertificate={isCourseCompleted}
+          showMarkComplete={showMarkComplete}
+          onMarkComplete={handleMarkComplete}
         />
       </View>
 
@@ -721,10 +707,5 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
   },
-  markCompleteWrap: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
+
 });

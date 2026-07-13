@@ -12,12 +12,8 @@ import Svg, { Circle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Button from '../../Button';
-import type {
-  AssessmentAnswer,
-  AssessmentSessionDetails,
-  AssessmentSessionQuestion,
-  QuestionSummary,
-} from '../../../types/assessmentSession.types';
+import { QUESTION_TYPE } from '../../../constants/questionTypes';
+import type { AssessmentSessionDetails, QuestionSummary } from '../../../types/assessmentSession.types';
 import { useTheme } from '../../../theme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -88,228 +84,30 @@ function ScoreRing({ percentage }: { percentage: number }) {
   );
 }
 
-// ─── Grade Badge ───
-function gradeLetter(pct: number): string {
-  if (pct >= 90) return 'A+';
-  if (pct >= 80) return 'A';
-  if (pct >= 70) return 'B';
-  if (pct >= 60) return 'C';
-  if (pct >= 50) return 'D';
-  return 'F';
+function isSubjectiveQuestionType(questionType: number): boolean {
+  return questionType === QUESTION_TYPE.COMMENT || questionType === QUESTION_TYPE.ASSIGNMENT;
 }
 
-function gradeColor(grade: string): string {
-  if (grade.startsWith('A')) return '#22c55e';
-  if (grade === 'B') return '#0D9488';
-  if (grade === 'C') return '#f59e0b';
-  if (grade === 'D') return '#f97316';
-  return '#ef4444';
-}
-
-// ─── Animated Counter Stat ───
-function AnimatedStat({
-  label,
-  value,
-  color,
-  delay,
-}: {
-  label: string;
-  value: number;
-  color: string;
-  delay: number;
-}) {
-  const [displayed, setDisplayed] = useState(0);
-
-  useEffect(() => {
-    let frame = 0;
-    const duration = 800;
-    const start = Date.now();
-    const tick = () => {
-      const elapsed = Date.now() - start;
-      const progress = Math.min(elapsed / duration, 1);
-      setDisplayed(Math.round(progress * value));
-      if (progress < 1) {
-        frame = requestAnimationFrame(tick);
-      }
-    };
-    const timeout = setTimeout(() => {
-      frame = requestAnimationFrame(tick);
-    }, delay);
-    return () => {
-      clearTimeout(timeout);
-      cancelAnimationFrame(frame);
-    };
-  }, [delay, value]);
-
-  return (
-    <Animated.View
-      entering={FadeInDown.springify().damping(20).stiffness(300).delay(delay)}
-      style={statStyles.wrap}
-    >
-      <Text style={[statStyles.value, { color }]}>{displayed}</Text>
-      <Text style={[statStyles.label, { color }]}>{label}</Text>
-    </Animated.View>
+function hasPendingEvaluation(summary: QuestionSummary[]): boolean {
+  return summary.some(
+    (item) => isSubjectiveQuestionType(item.question_type) && !item.evaluated,
   );
 }
 
-const statStyles = StyleSheet.create({
-  wrap: { alignItems: 'center', gap: 2 },
-  value: { fontSize: 22, fontWeight: '900' },
-  label: { fontSize: 12, fontWeight: '600' },
-});
-
-// ─── Expandable Question Review Card ───
-function QuestionReviewCard({
-  item,
-  index,
-  testQuestions,
-  testAnswers,
-}: {
-  item: QuestionSummary;
-  index: number;
-  testQuestions?: Record<string, AssessmentSessionQuestion>;
-  testAnswers?: Record<string, AssessmentAnswer>;
-}) {
-  const { colors } = useTheme();
-  const [expanded, setExpanded] = useState(false);
-
-  const isCorrect = item.status === '1';
-  const isEvaluated = item.evaluated;
-  const statusColor = isCorrect ? '#22c55e' : '#ef4444';
-  const statusIcon = isCorrect ? 'checkmark-circle' : 'close-circle';
-  const statusLabel = isCorrect ? 'Correct' : 'Wrong';
-
-  // Try to find the student's answer from cached data
-  const questionEntry = testQuestions
-    ? Object.values(testQuestions).find(
-        (q) => q.question === item.question_name || q.id === String(index),
-      )
-    : undefined;
-  const studentAnswer = questionEntry?.user_selection?.join(', ') || '—';
-
-  return (
-    <Animated.View
-      entering={FadeInDown.springify().damping(20).stiffness(280).delay(200 + index * 50)}
-    >
-      <Pressable
-        onPress={() => {
-          void Haptics.selectionAsync();
-          setExpanded((v) => !v);
-        }}
-        style={[
-          reviewStyles.card,
-          {
-            backgroundColor: colors.surface,
-            borderColor: isCorrect ? `${statusColor}44` : `${statusColor}44`,
-            borderLeftColor: statusColor,
-          },
-        ]}
-      >
-        {/* Header */}
-        <View style={reviewStyles.header}>
-          <View style={[reviewStyles.statusDot, { backgroundColor: statusColor }]}>
-            <Ionicons name={statusIcon} size={14} color="#fff" />
-          </View>
-          <View style={reviewStyles.headerText}>
-            <Text style={[reviewStyles.qTitle, { color: colors.text }]} numberOfLines={expanded ? undefined : 2}>
-              {item.question_name}
-            </Text>
-            <Text style={[reviewStyles.meta, { color: colors.textSecondary }]}>
-              {item.section_name} · {item.obt_marks} marks · {statusLabel}
-            </Text>
-          </View>
-          <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={16}
-            color={colors.textTertiary}
-          />
-        </View>
-
-        {/* Expanded details */}
-        {expanded ? (
-          <View style={reviewStyles.details}>
-            <View style={reviewStyles.answerRow}>
-              <Text style={[reviewStyles.answerLabel, { color: colors.textSecondary }]}>
-                Your answer
-              </Text>
-              <Text style={[reviewStyles.answerValue, { color: isCorrect ? '#22c55e' : '#ef4444' }]}>
-                {studentAnswer}
-              </Text>
-            </View>
-
-            {!isCorrect && item.answers && item.answers.length > 0 ? (
-              <View style={reviewStyles.answerRow}>
-                <Text style={[reviewStyles.answerLabel, { color: colors.textSecondary }]}>
-                  Correct answer
-                </Text>
-                <Text style={[reviewStyles.answerValue, { color: '#22c55e' }]}>
-                  {item.answers.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(', ')}
-                </Text>
-              </View>
-            ) : null}
-
-            {item.feedback ? (
-              <View style={[reviewStyles.feedbackBox, { backgroundColor: `${colors.primary}10` }]}>
-                <Ionicons name="chatbubble-outline" size={14} color={colors.primary} />
-                <Text style={[reviewStyles.feedbackText, { color: colors.textSecondary }]}>
-                  {item.feedback}
-                </Text>
-              </View>
-            ) : null}
-
-            {!isEvaluated ? (
-              <Text style={[reviewStyles.pendingLabel, { color: colors.warning }]}>
-                ⏳ Pending evaluation
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
-      </Pressable>
-    </Animated.View>
-  );
+function questionStatusLabel(item: QuestionSummary): string {
+  if (!item.evaluated && isSubjectiveQuestionType(item.question_type)) {
+    return 'Pending evaluation';
+  }
+  if (item.question_type === QUESTION_TYPE.ASSIGNMENT && item.status === '1') {
+    return 'Attempted';
+  }
+  return item.status === '1' ? 'Correct' : 'Wrong';
 }
 
-const reviewStyles = StyleSheet.create({
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderLeftWidth: 4,
-    padding: 14,
-    gap: 10,
-    // @ts-ignore
-    borderCurve: 'continuous',
-  },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  statusDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  headerText: { flex: 1, gap: 3 },
-  qTitle: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
-  meta: { fontSize: 12 },
-  details: { gap: 10, paddingTop: 4, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#e2e8f022' },
-  answerRow: { gap: 2 },
-  answerLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.4 },
-  answerValue: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
-  feedbackBox: {
-    flexDirection: 'row',
-    gap: 8,
-    padding: 10,
-    borderRadius: 10,
-    alignItems: 'flex-start',
-  },
-  feedbackText: { flex: 1, fontSize: 13, lineHeight: 19 },
-  pendingLabel: { fontSize: 12, fontWeight: '600' },
-});
-
-// ─── Main Summary Component ───
-export function AssessmentSummary({ details, summary, testQuestions, testAnswers, onDone }: AssessmentSummaryProps) {
+export function AssessmentSummary({ details, summary, onDone }: AssessmentSummaryProps) {
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const pending = hasPendingEvaluation(summary);
   const scorePct =
     details && details.totMarks > 0
       ? Math.round((details.obtMarks / details.totMarks) * 100)
@@ -321,48 +119,47 @@ export function AssessmentSummary({ details, summary, testQuestions, testAnswers
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 88 }]}>
-        {/* Hero */}
-        <Animated.View
-          entering={FadeInDown.springify().damping(20)}
-          style={styles.hero}
-        >
-          <ScoreRing percentage={scorePct} />
-          {details ? (
-            <>
-              <Text style={[styles.marks, { color: colors.text }]}>
-                {details.obtMarks} / {details.totMarks}
+        <View style={styles.hero}>
+          {pending ? (
+            <View
+              style={[
+                styles.pendingBanner,
+                { backgroundColor: `${colors.warning}22`, borderColor: colors.warning },
+              ]}
+            >
+              <Text style={[styles.pendingTitle, { color: colors.warning }]}>
+                Evaluation pending
               </Text>
-              <View style={styles.gradeRow}>
-                <View
-                  style={[
-                    styles.gradeBadge,
-                    { backgroundColor: `${gColor}22`, borderColor: `${gColor}44` },
-                  ]}
-                >
-                  <Text style={[styles.gradeText, { color: gColor }]}>{grade}</Text>
-                </View>
-                <View
-                  style={[
-                    styles.passBadge,
-                    { backgroundColor: passed ? `#22c55e22` : `${colors.error}22` },
-                  ]}
-                >
-                  <Ionicons
-                    name={passed ? 'checkmark-circle' : 'alert-circle'}
-                    size={16}
-                    color={passed ? '#22c55e' : colors.error}
-                  />
-                  <Text style={{ color: passed ? '#22c55e' : colors.error, fontWeight: '700', fontSize: 13 }}>
-                    {passed ? 'Passed' : 'Needs improvement'}
+              <Text style={[styles.pendingBody, { color: colors.textSecondary }]}>
+                Summary cannot be displayed as evaluation is pending. Your teacher will review
+                subjective answers before final results are available.
+              </Text>
+            </View>
+          ) : (
+            <>
+              <ScoreRing percentage={scorePct} />
+              {details ? (
+                <>
+                  <Text style={[styles.marks, { color: colors.text }]}>
+                    {details.obtMarks} / {details.totMarks}
                   </Text>
-                </View>
-              </View>
+                  <View
+                    style={[
+                      styles.passBadge,
+                      { backgroundColor: passed ? `${colors.success}22` : `${colors.error}22` },
+                    ]}
+                  >
+                    <Text style={{ color: passed ? colors.success : colors.error, fontWeight: '800' }}>
+                      {passed ? 'Passed' : 'Needs improvement'}
+                    </Text>
+                  </View>
+                </>
+              ) : null}
             </>
-          ) : null}
-        </Animated.View>
+          )}
+        </View>
 
-        {/* Stats */}
-        {details ? (
+        {details && !pending ? (
           <View style={[styles.statsRow, { borderColor: colors.border }]}>
             <AnimatedStat label="Correct" value={details.correct} color="#22c55e" delay={100} />
             <AnimatedStat label="Wrong" value={details.incorrect} color={colors.error} delay={200} />
@@ -383,25 +180,23 @@ export function AssessmentSummary({ details, summary, testQuestions, testAnswers
 
         {/* Question Review List */}
         {summary.length > 0 ? (
-          <View style={styles.reviewSection}>
-            <Animated.Text
-              entering={FadeInDown.springify().damping(20).delay(150)}
-              style={[styles.reviewTitle, { color: colors.text }]}
-            >
-              Question Review
-            </Animated.Text>
-            <View style={styles.reviewList}>
-              {summary.map((item, index) => (
-                <QuestionReviewCard
-                  key={`${item.section_order}-${item.question_name}-${index}`}
-                  item={item}
-                  index={index}
-                  testQuestions={testQuestions}
-                  testAnswers={testAnswers}
-                />
-              ))}
-            </View>
-          </View>
+          <FlatList
+            data={summary}
+            keyExtractor={(item, index) => `${item.section_order}-${item.question_name}-${index}`}
+            scrollEnabled={false}
+            contentContainerStyle={{ gap: 10 }}
+            renderItem={({ item }) => (
+              <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                <Text style={[styles.qTitle, { color: colors.text }]} numberOfLines={2}>
+                  {item.question_name}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+                  {item.section_name} · {questionStatusLabel(item)}
+                  {!pending || item.evaluated ? ` · ${item.obt_marks} marks` : ''}
+                </Text>
+              </View>
+            )}
+          />
         ) : null}
       </ScrollView>
 
@@ -429,26 +224,18 @@ const styles = StyleSheet.create({
   ringCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   ringScore: { fontSize: 32, fontWeight: '900' },
   marks: { fontSize: 16, fontWeight: '600' },
-  gradeRow: { flexDirection: 'row', gap: 10, alignItems: 'center' },
-  gradeBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
+  passBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  pendingBanner: {
+    width: '100%',
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 8,
     // @ts-ignore
     borderCurve: 'continuous',
   },
-  gradeText: { fontSize: 18, fontWeight: '900' },
-  passBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
+  pendingTitle: { fontSize: 18, fontWeight: '800', textAlign: 'center' },
+  pendingBody: { fontSize: 14, lineHeight: 21, textAlign: 'center' },
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',

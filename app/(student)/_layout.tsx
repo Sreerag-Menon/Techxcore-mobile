@@ -99,6 +99,7 @@ export default function StudentLayout() {
         name="old-courses"
         options={{ ...STACK_HEADER, headerTitle: 'Old Courses' }}
       />
+      <Stack.Screen name="profile" options={{ headerShown: false }} />
     </Stack>
   );
 }

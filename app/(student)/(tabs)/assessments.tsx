@@ -115,7 +115,11 @@ export default function AssessmentsScreen() {
     assessment.publish_id ?? assessment.assessment_id ?? assessment.test_id;
 
   return (
-    <ScreenLayout refreshing={isRefreshing} onRefresh={onRefresh}>
+    <ScreenLayout
+      floatingTabBar
+      refreshing={isRefreshing}
+      onRefresh={onRefresh}
+    >
       <TabLayout
         title="Assessments"
         subtitle="Review upcoming tests, continue in-progress attempts, and revisit completed results."

@@ -12,6 +12,7 @@ import {
   parseStubResponse,
 } from '../../utils/assessmentDiagnostics';
 import { QUESTION_TYPE } from '../../constants/questionTypes';
+import { logAssessment, logAssessmentWarn } from '../../utils/assessmentDebugLog';
 import type {
   AssessmentAnswer,
   AssessmentAnswerRow,
@@ -146,6 +147,7 @@ function transformSessionDetails(response: unknown, publishId: number): Assessme
     attemptCount: asNumber(row.attempt_count, 0),
     groupedTest: asNumber(row.grouped_test, 0),
     summary_viewable: Boolean(row.summary_viewable),
+    isEvaluated: Boolean(row.is_evaluated),
     rand_question: asNumber(row.rand_question, 0) || undefined,
     rand_section: asNumber(row.rand_section, 0) || undefined,
     start_from: asString(row.start_from, '') || undefined,
@@ -161,6 +163,12 @@ function transformSessionDetails(response: unknown, publishId: number): Assessme
   };
 }
 
+/** Coerce API / in-memory values to 0|1 for DB stub casts. */
+export function toQuestionFlag(value: unknown): 0 | 1 {
+  if (value === true || value === 1 || value === '1') return 1;
+  return 0;
+}
+
 function normalizeQuestion(raw: Record<string, unknown>): AssessmentSessionQuestion {
   return {
     id: asString(raw.id, ''),
@@ -171,8 +179,8 @@ function normalizeQuestion(raw: Record<string, unknown>): AssessmentSessionQuest
     sequence: asNumber(raw.sequence, 0),
     image: asString(raw.image, '') || undefined,
     points: asNumber(raw.points, 0),
-    flagged: asBoolean(raw.flagged, false) ? 1 : 0,
-    attempted: asBoolean(raw.attempted, false) ? 1 : 0,
+    flagged: toQuestionFlag(raw.flagged),
+    attempted: toQuestionFlag(raw.attempted),
     user_selection: Array.isArray(raw.user_selection)
       ? (raw.user_selection as unknown[]).map((v) => asString(v, ''))
       : [],
@@ -200,7 +208,7 @@ function normalizeQuestion(raw: Record<string, unknown>): AssessmentSessionQuest
 function transformSections(response: unknown): AssessmentSection[] {
   const row = extractItem<Record<string, unknown>>(response);
   const sectionRows = extractArray<Record<string, unknown>>(row?.questions ?? []);
-  return sectionRows.map((sec) => {
+  const sections = sectionRows.map((sec) => {
     const rawQuestions = sec.questions;
     let questions: AssessmentSessionQuestion[] = [];
     if (Array.isArray(rawQuestions)) {
@@ -226,6 +234,17 @@ function transformSections(response: unknown): AssessmentSection[] {
       open: true,
     };
   });
+  const questionCount = sections.reduce((sum, s) => sum + s.questions.length, 0);
+  logAssessment('api:transformSections', {
+    sectionCount: sections.length,
+    questionCount,
+    hasRow: Boolean(row),
+    rawSectionCount: sectionRows.length,
+  });
+  if (sections.length === 0) {
+    logAssessmentWarn('api:transformSections empty', { responseKeys: row ? Object.keys(row) : [] });
+  }
+  return sections;
 }
 
 function emptyAnswer(): AssessmentAnswer {
@@ -272,14 +291,24 @@ function extractAnswerRows(response: unknown): AssessmentAnswerRow[] {
         }
       }
     }
-    if (result.length > 0) return result;
+    if (result.length > 0) {
+      logAssessment('api:extractAnswerRows (grouped)', { rowCount: result.length });
+      return result;
+    }
   }
 
   const flat = extractArray<Record<string, unknown>>(response);
   if (flat.length > 0) {
-    return flat.map(normalizeAnswerRow).filter((r) => r.question_id);
+    const rows = flat.map(normalizeAnswerRow).filter((r) => r.question_id);
+    logAssessment('api:extractAnswerRows (flat)', { rowCount: rows.length });
+    return rows;
   }
 
+  logAssessmentWarn('api:extractAnswerRows empty', {
+    isArray: Array.isArray(response),
+    hasRow: Boolean(row),
+    rowKeys: row ? Object.keys(row) : [],
+  });
   return [];
 }
 
@@ -343,6 +372,48 @@ export function groupAnswerRows(
   return result;
 }
 
+export function serializeTestQuestionsForStub(
+  questions: Record<string, AssessmentSessionQuestion>,
+): Record<string, AssessmentSessionQuestion> {
+  return Object.fromEntries(
+    Object.entries(questions).map(([id, q]) => [
+      id,
+      { ...q, flagged: toQuestionFlag(q.flagged), attempted: toQuestionFlag(q.attempted) },
+    ]),
+  );
+}
+
+function isPostgresErrorRow(row: Record<string, unknown>): boolean {
+  return row.severity === 'ERROR' || (typeof row.code === 'string' && row.name === 'error');
+}
+
+function transformStubResponse(response: unknown): AssessmentStubResponse {
+  const row = extractItem<Record<string, unknown>>(response) ?? {};
+
+  if (isPostgresErrorRow(row)) {
+    const detail = asString(row.message, '') || asString(row.routine, '');
+    throw new Error(detail || 'Assessment request failed');
+  }
+
+  const result: AssessmentStubResponse = {
+    StatusValue: asNumber(row.StatusValue ?? row.statusvalue, 0) || undefined,
+    StatusText: asString(row.StatusText ?? row.statustext, '') || undefined,
+    testassessmentid:
+      asNumber(row.testassessmentid ?? row.test_assessment_id ?? row.testAssessmentId, 0) ||
+      undefined,
+    duration: asNumber(row.duration, 0) || undefined,
+    notify_assessment_submit: asNumber(row.notify_assessment_submit, 0) || undefined,
+    course_publish_id: asNumber(row.course_publish_id, 0) || undefined,
+    course_id: asNumber(row.course_id, 0) || undefined,
+  };
+
+  if (result.StatusValue != null && result.StatusValue !== 1) {
+    throw new Error(result.StatusText || 'Assessment request failed');
+  }
+
+  return result;
+}
+
 export type CreateUpdateStubArgs = {
   publishId: number;
   studentAssessmentId: number;
@@ -386,8 +457,17 @@ export const assessmentApi = createApi({
         url: ENDPOINTS.ASSESSMENT_SESSION.DETAILS,
         data: { publishId: String(publishId) },
       }),
-      transformResponse: (response, _meta, arg) =>
-        transformSessionDetails(response, arg.publishId),
+      transformResponse: (response, _meta, arg) => {
+        const details = transformSessionDetails(response, arg.publishId);
+        logAssessment('api:session-details', {
+          publishId: arg.publishId,
+          testStateName: details.testStateName,
+          summary_viewable: details.summary_viewable,
+          latestAssessmentId: details.latestAssessmentId,
+          isEvaluated: details.isEvaluated,
+        });
+        return details;
+      },
       providesTags: (_r, _e, arg) => [{ type: 'AssessmentSession', id: arg.publishId }],
     }),
 
@@ -397,7 +477,9 @@ export const assessmentApi = createApi({
         data: {
           publishId: String(args.publishId),
           studentAssessmentId: String(args.studentAssessmentId),
-          testQuestions: serializeTestQuestionsForStub(args.testQuestions),
+          ...(args.testQuestions != null
+            ? { testQuestions: serializeTestQuestionsForStub(args.testQuestions) }
+            : {}),
           testAnswers: args.testAnswers,
           endTime: args.endTime,
           status: args.status,
@@ -410,8 +492,26 @@ export const assessmentApi = createApi({
           ...(args.interval != null ? { interval: String(args.interval) } : {}),
         },
       }),
-      transformResponse: (response) => transformStubResponse(response),
-      invalidatesTags: (_r, _e, arg) => [{ type: 'AssessmentSession', id: arg.publishId }],
+      transformResponse: (response, _meta, arg) => {
+        const result = transformStubResponse(response);
+        logAssessment('api:stub-response', {
+          status: arg.status,
+          publishId: arg.publishId,
+          studentAssessmentId: arg.studentAssessmentId,
+          testassessmentid: result.testassessmentid,
+          StatusValue: result.StatusValue,
+          StatusText: result.StatusText,
+        });
+        return result;
+      },
+      invalidatesTags: (_r, _e, arg) => {
+        logAssessment('api:stub-invalidates-session', {
+          status: arg.status,
+          publishId: arg.publishId,
+          note: 'triggers getAssessmentSessionDetails refetch',
+        });
+        return [{ type: 'AssessmentSession', id: arg.publishId }];
+      },
     }),
 
     getSessionQuestions: builder.query<AssessmentSection[], { studentAssessmentId: number }>({

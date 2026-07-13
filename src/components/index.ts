@@ -11,4 +11,5 @@ export { default as Skeleton } from './Skeleton';
 export * from './Skeleton';
 export * from './form';
 export * from './auth';
+export * from './profile';
 

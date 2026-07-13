@@ -1,7 +1,7 @@
 import '../global.css';
 
 import { useEffect } from 'react';
-import { AppState } from 'react-native';
+import { AppState, I18nManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Provider } from 'react-redux';
 import { Slot } from 'expo-router';
@@ -46,6 +46,18 @@ function AppNavigator() {
       dispatch(restoreSession());
     });
   }, [dispatch]);
+
+  useEffect(() => {
+    AsyncStorage.getItem(APP_CONFIG.DIRECTION_KEY)
+      .then((saved) => {
+        if (saved !== 'ltr' && saved !== 'rtl') return;
+        const shouldBeRtl = saved === 'rtl';
+        if (I18nManager.isRTL === shouldBeRtl) return;
+        I18nManager.allowRTL(shouldBeRtl);
+        I18nManager.forceRTL(shouldBeRtl);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     // Only hide splash when fonts + both redux slices are ready

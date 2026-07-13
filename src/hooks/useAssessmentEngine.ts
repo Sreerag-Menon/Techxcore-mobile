@@ -20,6 +20,7 @@ import type {
   QuestionSummary,
 } from '../types/assessmentSession.types';
 import { formatAssessmentEndTime, formatAttendedDuration } from '../utils/assessmentDate';
+import { logAssessment, logAssessmentError, logAssessmentWarn } from '../utils/assessmentDebugLog';
 
 export type UseAssessmentEngineArgs = {
   publishId: number;
@@ -88,7 +89,7 @@ export function useAssessmentEngine({
   const { data: sessionDetails, isLoading: detailsLoading, error: detailsError } =
     useGetAssessmentSessionDetailsQuery({ publishId });
 
-  const [phase, setPhase] = useState<AssessmentEnginePhase>('loading');
+  const [phase, setPhase] = useState<AssessmentEnginePhase>('idle');
   const [studentAssessmentId, setStudentAssessmentId] = useState(0);
   const [testQuestions, setTestQuestions] = useState<Record<string, AssessmentSessionQuestion>>({});
   const [testAnswers, setTestAnswers] = useState<Record<string, AssessmentAnswer>>({});
@@ -101,14 +102,8 @@ export function useAssessmentEngine({
   const startTimeRef = useRef<Date>(new Date());
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmittedRef = useRef(false);
-
-  /**
-   * Snapshot of testQuestions at the time of the last successful Save.
-   * Cancel restores this snapshot, discarding unsaved in-state changes.
-   */
-  const lastSavedQuestionsRef = useRef<Record<string, AssessmentSessionQuestion>>({});
-  // Tracks whether any answer changed since last save
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const actionInFlightRef = useRef(false);
+  const saveSeqRef = useRef(0);
 
   const shouldLoadQuestions = studentAssessmentId > 0;
   const { data: sections = [], isLoading: questionsLoading } = useGetSessionQuestionsQuery(
@@ -131,10 +126,17 @@ export function useAssessmentEngine({
 
   useEffect(() => {
     if (detailsLoading) {
+      logAssessment('session:loading', {
+        publishId,
+        phase,
+        actionInFlight: actionInFlightRef.current,
+        saveSeq: saveSeqRef.current,
+      });
       setPhase('loading');
       return;
     }
     if (!sessionDetails) {
+      logAssessmentWarn('session:no-details', { publishId, detailsError: String(detailsError ?? '') });
       setPhase('idle');
       return;
     }
@@ -143,31 +145,91 @@ export function useAssessmentEngine({
       sessionDetails.testStateName === 'Yet to Start' ||
       sessionDetails.testStateName === 'In Progress';
 
+    logAssessment('session:resolved', {
+      publishId,
+      phase,
+      testStateName: sessionDetails.testStateName,
+      isActive,
+      latestAssessmentId: sessionDetails.latestAssessmentId,
+      summary_viewable: sessionDetails.summary_viewable,
+      testId: sessionDetails.testId,
+      actionInFlight: actionInFlightRef.current,
+      saveSeq: saveSeqRef.current,
+    });
+
     if (!isActive) {
-      setPhase('submitted');
+      if (actionInFlightRef.current) {
+        logAssessment('save:session-refetch-blocked', {
+          phase,
+          testStateName: sessionDetails.testStateName,
+          isActive,
+          summary_viewable: sessionDetails.summary_viewable,
+          saveSeq: saveSeqRef.current,
+        });
+        return;
+      }
+      const next = sessionDetails.summary_viewable ? 'summary' : 'submitted';
+      logAssessment(`phase→${next} (inactive session)`, {
+        fromPhase: phase,
+        testStateName: sessionDetails.testStateName,
+        latestAssessmentId: sessionDetails.latestAssessmentId,
+        summary_viewable: sessionDetails.summary_viewable,
+        saveSeq: saveSeqRef.current,
+      });
+      setPhase(next);
       if (sessionDetails.latestAssessmentId) {
         setStudentAssessmentId(sessionDetails.latestAssessmentId);
       }
       return;
     }
 
-    setPhase('landing');
-  }, [detailsLoading, sessionDetails]);
+    logAssessment('phase→landing (active session)', {
+      fromPhase: phase,
+      actionInFlight: actionInFlightRef.current,
+      saveSeq: saveSeqRef.current,
+    });
+    setPhase((current) => {
+      if (actionInFlightRef.current) {
+        logAssessment('session:active-guarded', { fromPhase: current, saveSeq: saveSeqRef.current });
+        return current;
+      }
+      if (current === 'answering' || current === 'summary' || current === 'submitted') {
+        return current;
+      }
+      return 'landing';
+    });
+  }, [detailsError, detailsLoading, phase, publishId, sessionDetails]);
 
   useEffect(() => {
-    if (!shouldLoadQuestions || sections.length === 0) return;
+    if (!shouldLoadQuestions) {
+      logAssessment('questions:skip (no studentAssessmentId)', { studentAssessmentId });
+      return;
+    }
+    if (sections.length === 0) {
+      logAssessment('questions:waiting (empty sections)', {
+        studentAssessmentId,
+        questionsLoading,
+        answerRowCount: answerRows.length,
+      });
+      return;
+    }
     const maps = buildQuestionMaps(sections);
+    logAssessment('phase→answering', {
+      studentAssessmentId,
+      sectionCount: sections.length,
+      questionCount: maps.questionIds.length,
+      answerRowCount: answerRows.length,
+      answerKeyCount: Object.keys(groupAnswerRows(answerRows, maps.testQuestions)).length,
+    });
     setTestQuestions(maps.testQuestions);
     setQuestionIds(maps.questionIds);
     setQuestionSection(maps.questionSection);
     setTestAnswers(groupAnswerRows(answerRows, maps.testQuestions));
     setSelectedItem((prev) => prev ?? maps.questionIds[0] ?? null);
+    actionInFlightRef.current = false;
     setPhase('answering');
     startTimeRef.current = new Date();
-    // Initial state is the "last saved" state (loaded from server)
-    lastSavedQuestionsRef.current = cloneQuestions(maps.testQuestions);
-    setHasUnsavedChanges(false);
-  }, [answerRows, sections, shouldLoadQuestions]);
+  }, [answerRows, questionsLoading, sections, shouldLoadQuestions, studentAssessmentId]);
 
   const attendedDuration = useCallback(
     () => formatAttendedDuration(startTimeRef.current),
@@ -201,16 +263,51 @@ export function useAssessmentEngine({
   );
 
   const startAssessment = useCallback(async () => {
+    const resumeId =
+      sessionDetails?.testStateName === 'In Progress' && sessionDetails.latestAssessmentId
+        ? sessionDetails.latestAssessmentId
+        : studentAssessmentId;
+    const stubArgs = {
+      ...buildStubArgs(0),
+      studentAssessmentId: resumeId,
+    };
+    logAssessment('startAssessment:begin', {
+      publishId,
+      studentAssessmentId: stubArgs.studentAssessmentId,
+      latestAssessmentId: sessionDetails?.latestAssessmentId,
+      testStateName: sessionDetails?.testStateName,
+      questionCount: Object.keys(stubArgs.testQuestions ?? {}).length,
+    });
+    actionInFlightRef.current = true;
     setPhase('loading');
     startTimeRef.current = new Date();
     try {
-      const rsp = await createStub(buildStubArgs(0)).unwrap();
-      const id = rsp.testassessmentid ?? 0;
+      const rsp = await createStub(stubArgs).unwrap();
+      const id = rsp.testassessmentid ?? resumeId ?? 0;
+      logAssessment('startAssessment:stub-ok', {
+        testassessmentid: id,
+        StatusValue: rsp.StatusValue,
+        StatusText: rsp.StatusText,
+      });
+      if (id <= 0) {
+        throw new Error('Stub response missing testassessmentid');
+      }
       setStudentAssessmentId(id);
-    } catch {
+    } catch (err) {
+      actionInFlightRef.current = false;
+      logAssessmentError('startAssessment:stub-failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       setPhase('landing');
     }
-  }, [buildStubArgs, createStub]);
+  }, [
+    buildStubArgs,
+    createStub,
+    publishId,
+    sessionDetails?.latestAssessmentId,
+    sessionDetails?.testStateName,
+    studentAssessmentId,
+  ]);
 
   const updateElapsedTime = useCallback(
     async (interval = 30000) => {
@@ -225,72 +322,76 @@ export function useAssessmentEngine({
   );
 
   const save = useCallback(async () => {
-    await createStub(buildStubArgs(1)).unwrap();
-    // Snapshot current state as "last saved"
-    lastSavedQuestionsRef.current = cloneQuestions(testQuestions);
-    setHasUnsavedChanges(false);
-  }, [buildStubArgs, createStub, testQuestions]);
-
-  /** Discard unsaved in-state answers, restore the last saved snapshot. */
-  const cancel = useCallback(() => {
-    const snapshot = lastSavedQuestionsRef.current;
-    if (Object.keys(snapshot).length === 0) return;
-
-    setTestQuestions(cloneQuestions(snapshot));
-    // Rebuild questionSection questions from snapshot
-    setQuestionSection((prev) =>
-      prev.map((section) => ({
-        ...section,
-        questions: section.questions.map((q) =>
-          snapshot[q.id] ? { ...snapshot[q.id] } : q,
-        ),
-        questions_attempted: section.questions.filter((q) =>
-          snapshot[q.id]?.attempted === 1 || (snapshot[q.id]?.user_selection?.length ?? 0) > 0,
-        ).length,
-      })),
-    );
-    setHasUnsavedChanges(false);
-  }, []);
+    const saveSeq = ++saveSeqRef.current;
+    const stubArgs = buildStubArgs(1);
+    logAssessment('save:begin', {
+      saveSeq,
+      phase,
+      studentAssessmentId,
+      testStateName: sessionDetails?.testStateName,
+      status: stubArgs.status,
+      questionCount: Object.keys(stubArgs.testQuestions ?? {}).length,
+      answerKeyCount: Object.keys(stubArgs.testAnswers ?? {}).length,
+      actionInFlight: actionInFlightRef.current,
+    });
+    actionInFlightRef.current = true;
+    try {
+      const rsp = await createStub(stubArgs).unwrap();
+      logAssessment('save:stub-ok', {
+        saveSeq,
+        phase,
+        studentAssessmentId,
+        testassessmentid: rsp.testassessmentid,
+        StatusValue: rsp.StatusValue,
+        StatusText: rsp.StatusText,
+      });
+    } catch (err) {
+      logAssessmentError('save:stub-failed', {
+        saveSeq,
+        phase,
+        studentAssessmentId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    } finally {
+      logAssessment('save:guard-cleared', {
+        saveSeq,
+        phase,
+        note: 'actionInFlightRef cleared; session refetch may still be pending',
+      });
+      actionInFlightRef.current = false;
+    }
+  }, [
+    buildStubArgs,
+    createStub,
+    phase,
+    sessionDetails?.testStateName,
+    studentAssessmentId,
+  ]);
 
   const submit = useCallback(async () => {
     if (autoSubmittedRef.current) return;
     autoSubmittedRef.current = true;
-    setPhase('submitted');
+    actionInFlightRef.current = true;
+    setPhase('loading');
     try {
       const rsp = await createStub(buildStubArgs(3)).unwrap();
       const id = rsp.testassessmentid ?? studentAssessmentId;
       setStudentAssessmentId(id);
-
-      // Mirror web: call insert_update_trainee_points after submit (in-course context only)
-      const resolvedCoursePublishId = coursePublishId ?? sessionDetails?.coursePublishId;
-      const resolvedCourseId = courseId ?? sessionDetails?.courseId;
-      if (
-        resolvedCoursePublishId &&
-        resolvedCourseId &&
-        curriculumId &&
-        memberId
-      ) {
-        const pointsArgs: RecordAssessmentPointsArgs = {
-          videoUnitId: publishId,
-          coursePublishId: resolvedCoursePublishId,
-          courseId: resolvedCourseId,
-          curriculumId,
-          memberId,
-          acadYearId,
-          chapterId,
-          classId,
-        };
-        void recordPoints(pointsArgs).catch(() => {
-          // Non-blocking — don't let points failure block summary
-        });
-      }
-
+      actionInFlightRef.current = false;
       if (sessionDetails?.summary_viewable) {
         setPhase('summary');
+      } else {
+        setPhase('submitted');
       }
-    } catch {
+    } catch (err) {
       autoSubmittedRef.current = false;
+      actionInFlightRef.current = false;
+      logAssessmentError('submit:stub-failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
       setPhase('answering');
+      throw err;
     }
   }, [
     buildStubArgs,
@@ -309,10 +410,12 @@ export function useAssessmentEngine({
   ]);
 
   const exit = useCallback(async () => {
+    actionInFlightRef.current = true;
     try {
       await createStub(buildStubArgs(5)).unwrap();
-    } finally {
       setPhase('landing');
+    } finally {
+      actionInFlightRef.current = false;
     }
   }, [buildStubArgs, createStub]);
 
@@ -410,7 +513,32 @@ export function useAssessmentEngine({
     };
   }, [phase, remainingMs, updateElapsedTime]);
 
+  useEffect(() => {
+    logAssessment('phase:changed', {
+      phase,
+      studentAssessmentId,
+      detailsLoading,
+      questionsLoading,
+      stubLoading,
+      sectionCount: questionSection.length,
+      questionIds: questionIds.length,
+      actionInFlight: actionInFlightRef.current,
+      saveSeq: saveSeqRef.current,
+      testStateName: sessionDetails?.testStateName,
+    });
+  }, [
+    detailsLoading,
+    phase,
+    questionIds.length,
+    questionSection.length,
+    questionsLoading,
+    sessionDetails?.testStateName,
+    studentAssessmentId,
+    stubLoading,
+  ]);
+
   const viewSummary = useCallback(() => {
+    logAssessment('phase→summary (viewSummary)');
     setPhase('summary');
   }, []);
 

@@ -28,6 +28,7 @@ import Button from '../../Button';
 import { ErrorState, LoadingScreen } from '../../index';
 import { LiquidGlassView } from '../../ui/LiquidGlassView';
 import { useAssessmentEngine } from '../../../hooks/useAssessmentEngine';
+import { logAssessment, logAssessmentWarn } from '../../../utils/assessmentDebugLog';
 import { useTheme } from '../../../theme';
 import { logAssessmentGate } from '../../../utils/assessmentDiagnostics';
 import { AssessmentLanding } from './AssessmentLanding';
@@ -149,8 +150,7 @@ function AssessmentPlayerContent({
     navigate,
     navigateRelative,
     answerQuestion,
-    viewSummary,
-  } = useAssessmentEngine({ publishId, coursePublishId, courseId, curriculumId, memberId, acadYearId, chapterId, classId });
+  } = useAssessmentEngine({ publishId, coursePublishId, courseId });
 
   const [sections, setSections] = useState(questionSection);
   const submittedHandledRef = useRef(false);
@@ -168,27 +168,17 @@ function AssessmentPlayerContent({
       submittedHandledRef.current = false;
       return;
     }
-    if (sessionDetails?.summary_viewable && studentAssessmentId > 0) {
-      viewSummary();
-      return;
-    }
     if (submittedHandledRef.current) return;
     submittedHandledRef.current = true;
+    logAssessment('submitted→navigate-away (no summary)', {
+      studentAssessmentId,
+      testStateName: sessionDetails?.testStateName,
+      summary_viewable: sessionDetails?.summary_viewable,
+      note: 'onAllViewed/onComplete invoked — user leaves assessment screen',
+    });
     onAllViewed?.();
     onComplete?.();
-  }, [
-    phase,
-    sessionDetails?.summary_viewable,
-    studentAssessmentId,
-    viewSummary,
-    onAllViewed,
-    onComplete,
-  ]);
-
-  // Animate card on selectedItem change
-  useEffect(() => {
-    setCardKey((k) => k + 1);
-  }, [selectedItem]);
+  }, [onAllViewed, onComplete, phase, sessionDetails?.summary_viewable, sessionDetails?.testStateName, studentAssessmentId]);
 
   const toggleSection = useCallback((sectionOrder: number) => {
     setSections((prev) =>
@@ -199,14 +189,29 @@ function AssessmentPlayerContent({
   }, []);
 
   const handleSave = useCallback(async () => {
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    logAssessment('screen:save-pressed', {
+      phase,
+      studentAssessmentId,
+      testStateName: sessionDetails?.testStateName,
+      stubLoading,
+    });
     try {
       await save();
+      logAssessment('screen:save-complete', {
+        phase,
+        studentAssessmentId,
+        testStateName: sessionDetails?.testStateName,
+        note: 'toast shown next; watch phase:changed / inactive session logs',
+      });
       Toast.show({ type: 'success', text1: 'Assessment saved' });
-    } catch {
+    } catch (err) {
+      logAssessmentError('screen:save-failed', {
+        phase,
+        error: err instanceof Error ? err.message : String(err),
+      });
       Toast.show({ type: 'error', text1: 'Save failed' });
     }
-  }, [save]);
+  }, [phase, save, sessionDetails?.testStateName, studentAssessmentId, stubLoading]);
 
   const handleSubmit = useCallback(async () => {
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -232,7 +237,7 @@ function AssessmentPlayerContent({
   const handleExit = useCallback(() => {
     Alert.alert('Exit assessment?', 'Your progress will be saved. Exit now?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Exit', onPress: () => void exit() },
+      { text: 'Exit', onPress: () => void exit().catch(() => Toast.show({ type: 'error', text1: 'Exit failed' })) },
     ]);
   }, [exit]);
 
@@ -305,15 +310,21 @@ function AssessmentPlayerContent({
     studentAssessmentId,
   ]);
 
-  if (phase === 'loading' || detailsLoading || questionsLoading) {
+  if (phase === 'idle' || phase === 'loading' || detailsLoading || questionsLoading) {
+    logAssessment('screen:LoadingScreen', { phase, detailsLoading, questionsLoading, stubLoading });
     return <LoadingScreen />;
   }
 
   if (detailsError || !sessionDetails) {
+    logAssessmentWarn('screen:ErrorState', { detailsError: String(detailsError ?? ''), phase });
     return <ErrorState message="Unable to load assessment details." onRetry={() => void startAssessment()} />;
   }
 
   if (phase === 'landing') {
+    logAssessment('screen:AssessmentLanding', {
+      testStateName: sessionDetails.testStateName,
+      latestAssessmentId: sessionDetails.latestAssessmentId,
+    });
     return (
       <AssessmentLanding
         details={sessionDetails}
@@ -324,6 +335,7 @@ function AssessmentPlayerContent({
   }
 
   if (phase === 'summary') {
+    logAssessment('screen:AssessmentSummary', { summaryCount: summary.length });
     return (
       <AssessmentSummary
         details={sessionDetails}
@@ -336,7 +348,7 @@ function AssessmentPlayerContent({
   }
 
   if (phase === 'submitted') {
-    return <LoadingScreen label="Processing submission..." />;
+    return null;
   }
 
   const selected = selectedQuestion;
@@ -351,15 +363,13 @@ function AssessmentPlayerContent({
   };
   const answerData = selectedItem ? (testAnswers[selectedItem] ?? emptyAnswer) : emptyAnswer;
   const currentSection = selected?.section_name;
-  const isFlagged = selected ? Boolean(selected.flagged) : false;
 
-  // Card animation config
-  const enterAnim = navDirection === 'next'
-    ? SlideInRight.springify().damping(22).stiffness(280)
-    : SlideInLeft.springify().damping(22).stiffness(280);
-  const exitAnim = navDirection === 'next'
-    ? SlideOutLeft.duration(200)
-    : SlideOutRight.duration(200);
+  logAssessment('screen:Answering', {
+    selectedItem,
+    selectedIndex,
+    questionCount: questionIds.length,
+    hasSelectedQuestion: Boolean(selected),
+  });
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>

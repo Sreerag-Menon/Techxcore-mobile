@@ -1,5 +1,6 @@
 import { ENDPOINTS, extractArray, extractItem, extractMessage, post } from '@/api';
 import type { CourseContent } from '@/types/course.types';
+import { changeMemberPasswordV2 } from './profile';
 
 export interface DashboardActivity {
   activity_id: number;
@@ -117,10 +118,24 @@ export async function requestPasswordChange(payload: {
   old_password: string;
   new_password: string;
   confirm_password: string;
+  member_id?: number;
 }): Promise<string> {
+  if (payload.member_id) {
+    await changeMemberPasswordV2({
+      memberId: payload.member_id,
+      oldPwd: payload.old_password,
+      newPwd: payload.new_password,
+    });
+    return 'Password updated successfully';
+  }
+
   return requestMessage(
     ENDPOINTS.AUTH.CHANGE_PASSWORD,
-    payload,
+    {
+      old_password: payload.old_password,
+      new_password: payload.new_password,
+      confirm_password: payload.confirm_password,
+    },
     'Password updated successfully',
   );
 }

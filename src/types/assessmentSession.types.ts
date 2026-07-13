@@ -24,6 +24,7 @@ export type AssessmentSessionDetails = {
   attemptCount: number;
   groupedTest: number;
   summary_viewable: boolean;
+  isEvaluated: boolean;
   rand_question?: number;
   rand_section?: number;
   start_from?: string;
@@ -47,8 +48,8 @@ export type AssessmentSessionQuestion = {
   sequence: number;
   image?: string;
   points: number;
-  flagged: number;
-  attempted: number;
+  flagged: 0 | 1;
+  attempted: 0 | 1;
   user_selection: string[];
   match_selection?: MatchSelectionItem[];
   content?: string;

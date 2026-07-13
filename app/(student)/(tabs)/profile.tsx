@@ -1,84 +1,46 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { Alert, View } from 'react-native';
 import { router } from 'expo-router';
-import { Switch, Text, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import Toast from 'react-native-toast-message';
+import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
 
 import {
-  Avatar,
-  Button,
-  Card,
   ErrorState,
   LoadingScreen,
-} from '../../../src/components';
-import {
-  FormImagePicker,
-  FormInput,
-} from '../../../src/components/form';
-import { ScreenLayout, TabLayout } from '../../../src/layouts';
-import { useAppDispatch, useAppSelector } from '../../../src/redux';
-import { setSessionUser, logoutUser } from '../../../src/redux/slices/authSlice';
+  ProfileIdentityHeader,
+  ProfileSettingsGroup,
+  ProfileSettingsRow,
+  Skeleton,
+} from '@/components';
+import { ScreenLayout, TabLayout } from '@/layouts';
+import { APP_CONFIG } from '@/constants/config';
+import { useResponsive } from '@/hooks';
+import { useAppDispatch, useAppSelector } from '@/redux';
+import { logoutUser, setSessionUser } from '@/redux/slices/authSlice';
 import {
   fetchUserProfile,
   setUserProfile,
-} from '../../../src/redux/slices/userSlice';
-import { requestPasswordChange } from '../../../src/services';
-import { useTheme } from '../../../src/theme';
+} from '@/redux/slices/userSlice';
+import {
+  normalizeAvatarUri,
+  updateMemberProfilePhoto,
+} from '@/services/profile';
 
-const profileSchema = z.object({
-  first_name: z.string().min(1, 'First name is required'),
-  last_name: z.string().min(1, 'Last name is required'),
-  email: z.string().email('Enter a valid email address'),
-  phone: z.string().optional(),
-  avatar_url: z.string().optional(),
-});
-
-const passwordSchema = z
-  .object({
-    old_password: z.string().min(1, 'Current password is required'),
-    new_password: z.string().min(6, 'New password must be at least 6 characters'),
-    confirm_password: z.string().min(1, 'Confirm your new password'),
-  })
-  .refine(
-    (values) => values.new_password === values.confirm_password,
-    {
-      path: ['confirm_password'],
-      message: 'Passwords do not match',
-    },
-  );
-
-type ProfileFormValues = z.infer<typeof profileSchema>;
-type PasswordFormValues = z.infer<typeof passwordSchema>;
+function estimateBase64Bytes(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.floor((base64.length * 3) / 4) - padding;
+}
 
 export default function ProfileScreen() {
   const dispatch = useAppDispatch();
-  const { colors, isDark, toggleTheme } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const { fluid, isTablet } = useResponsive();
   const authUser = useAppSelector((state) => state.auth.user);
   const { profile, isLoading, error } = useAppSelector((state) => state.user);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-
-  const profileForm = useForm<ProfileFormValues>({
-    resolver: zodResolver(profileSchema),
-    defaultValues: {
-      first_name: '',
-      last_name: '',
-      email: '',
-      phone: '',
-      avatar_url: '',
-    },
-  });
-
-  const passwordForm = useForm<PasswordFormValues>({
-    resolver: zodResolver(passwordSchema),
-    defaultValues: {
-      old_password: '',
-      new_password: '',
-      confirm_password: '',
-    },
-  });
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const sectionGap = fluid(16, 20);
 
   const loadProfile = useCallback(async () => {
     await dispatch(fetchUserProfile()).unwrap();
@@ -90,93 +52,211 @@ export default function ProfileScreen() {
     }
   }, [loadProfile, profile]);
 
-  useEffect(() => {
-    if (!profile) return;
+  const passwordExpiry =
+    profile?.password_expiry === true || authUser?.password_expiry === true;
 
-    profileForm.reset({
-      first_name: profile.first_name ?? '',
-      last_name: profile.last_name ?? '',
-      email: profile.email ?? '',
-      phone: profile.phone ?? '',
-      avatar_url: profile.avatar_url ?? '',
-    });
-  }, [profile, profileForm]);
+  useEffect(() => {
+    if (passwordExpiry) {
+      router.push('/(student)/profile/password');
+    }
+  }, [passwordExpiry]);
 
   const displayName = useMemo(
-    () => [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
-    [profile],
+    () =>
+      [profile?.first_name ?? authUser?.first_name, profile?.last_name ?? authUser?.last_name]
+        .filter(Boolean)
+        .join(' '),
+    [authUser?.first_name, authUser?.last_name, profile?.first_name, profile?.last_name],
   );
 
-  const handleSaveProfile = profileForm.handleSubmit(async (values) => {
-    if (!profile) return;
+  const avatarUrl = normalizeAvatarUri(
+    profile?.avatar_url || authUser?.profile_image,
+  );
 
-    setIsSavingProfile(true);
+  const enableSkills =
+    profile?.enable_skills === true || authUser?.enable_skills === true;
 
+  const enter = (delay: number) =>
+    reduceMotion
+      ? undefined
+      : FadeInDown.springify().damping(20).stiffness(300).delay(delay);
+
+  const handlePickPhoto = async () => {
+    if (passwordExpiry) {
+      Toast.show({
+        type: 'info',
+        text1: 'Password expired',
+        text2: 'Update your password before changing other profile settings.',
+      });
+      router.push('/(student)/profile/password');
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        'Permission required',
+        'Photo access is needed to update your profile image.',
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: true,
+    });
+
+    if (result.canceled || !result.assets[0]) return;
+
+    const asset = result.assets[0];
+    const base64 = asset.base64;
+    if (!base64) {
+      Toast.show({
+        type: 'error',
+        text1: 'Upload failed',
+        text2: 'Could not read the selected image.',
+      });
+      return;
+    }
+
+    const byteSize = asset.fileSize ?? estimateBase64Bytes(base64);
+    if (byteSize > APP_CONFIG.MAX_PROFILE_PHOTO_BYTES) {
+      Toast.show({
+        type: 'error',
+        text1: 'Image too large',
+        text2: 'Please choose an image under 2 MB.',
+      });
+      return;
+    }
+
+    const mime = asset.mimeType || 'image/jpeg';
+    const dataUri = `data:${mime};base64,${base64}`;
+
+    setIsUploadingPhoto(true);
     try {
-      const updatedProfile = {
-        ...profile,
-        ...values,
-      };
+      await updateMemberProfilePhoto({
+        photo: dataUri,
+        origImage: profile?.avatar_url || authUser?.profile_image || '',
+      });
 
-      dispatch(setUserProfile(updatedProfile));
-
+      if (profile) {
+        dispatch(setUserProfile({ ...profile, avatar_url: dataUri }));
+      }
       if (authUser) {
         dispatch(
           setSessionUser({
             ...authUser,
-            first_name: values.first_name,
-            last_name: values.last_name,
-            email: values.email,
-            profile_image: values.avatar_url || authUser.profile_image,
+            profile_image: dataUri,
           }),
         );
       }
 
       Toast.show({
         type: 'success',
-        text1: 'Profile updated',
-        text2: 'Your profile changes were applied to the current app session.',
+        text1: 'Photo updated',
+        text2: 'Your profile photo was saved.',
       });
-    } finally {
-      setIsSavingProfile(false);
-    }
-  });
-
-  const handleChangePassword = passwordForm.handleSubmit(async (values) => {
-    setIsChangingPassword(true);
-
-    try {
-      const message = await requestPasswordChange(values);
-      passwordForm.reset();
-      Toast.show({
-        type: 'success',
-        text1: 'Password updated',
-        text2: message,
-      });
-    } catch (passwordError) {
+    } catch (uploadError) {
       Toast.show({
         type: 'error',
-        text1: 'Password update failed',
+        text1: 'Upload failed',
         text2:
-          passwordError instanceof Error
-            ? passwordError.message
-            : 'Unable to change password right now.',
+          uploadError instanceof Error
+            ? uploadError.message
+            : 'Unable to update profile photo.',
       });
     } finally {
-      setIsChangingPassword(false);
+      setIsUploadingPhoto(false);
     }
-  });
+  };
+
+  const handleRemovePhoto = () => {
+    Alert.alert('Remove photo', 'Remove your current profile photo?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            setIsUploadingPhoto(true);
+            try {
+              await updateMemberProfilePhoto({
+                photo: '',
+                origImage: profile?.avatar_url || authUser?.profile_image || '',
+              });
+
+              if (profile) {
+                dispatch(setUserProfile({ ...profile, avatar_url: undefined }));
+              }
+              if (authUser) {
+                dispatch(
+                  setSessionUser({
+                    ...authUser,
+                    profile_image: undefined,
+                  }),
+                );
+              }
+
+              Toast.show({ type: 'success', text1: 'Photo removed' });
+            } catch (removeError) {
+              Toast.show({
+                type: 'error',
+                text1: 'Remove failed',
+                text2:
+                  removeError instanceof Error
+                    ? removeError.message
+                    : 'Unable to remove photo.',
+              });
+            } finally {
+              setIsUploadingPhoto(false);
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
+  const openPhotoActions = () => {
+    Alert.alert('Profile photo', undefined, [
+      { text: 'Choose photo', onPress: () => void handlePickPhoto() },
+      ...(avatarUrl
+        ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: handleRemovePhoto }]
+        : []),
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const navigateGuarded = (path: string) => {
+    if (passwordExpiry && !path.includes('/password')) {
+      Toast.show({
+        type: 'info',
+        text1: 'Password expired',
+        text2: 'Update your password to continue.',
+      });
+      router.push('/(student)/profile/password');
+      return;
+    }
+    router.push(path as never);
+  };
 
   const handleLogout = async () => {
-    await dispatch(logoutUser()).unwrap();
-    router.replace('/(auth)/login');
+    setIsLoggingOut(true);
+    try {
+      await dispatch(logoutUser()).unwrap();
+      router.replace('/(auth)/login');
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   if (isLoading && !profile) {
     return <LoadingScreen label="Loading your profile..." />;
   }
 
-  if (error && !profile) {
+  if (error && !profile && !authUser) {
     return (
       <ScreenLayout scrollable={false}>
         <ErrorState
@@ -191,193 +271,128 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScreenLayout>
+    <ScreenLayout floatingTabBar maxContentWidth={isTablet ? 560 : undefined}>
       <TabLayout
         title="Profile"
-        subtitle="Manage your personal details, account security, theme, and sign-out preferences."
+        subtitle={
+          passwordExpiry
+            ? 'Your password has expired. Update it to unlock the rest of your settings.'
+            : 'Account, preferences, and support'
+        }
       >
-        <Card variant="elevated" padding="lg">
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 16,
-            }}
-          >
-            <Avatar
-              imageUrl={profile?.avatar_url || authUser?.profile_image}
+        <Animated.View entering={enter(40)}>
+          {isLoading && !profile ? (
+            <View style={{ alignItems: 'center', gap: 12, paddingVertical: 12 }}>
+              <Skeleton variant="circular" width={80} height={80} />
+              <Skeleton width="50%" height={22} />
+              <Skeleton width="70%" height={14} />
+            </View>
+          ) : (
+            <ProfileIdentityHeader
               name={displayName}
-              size="xl"
+              email={profile?.email || authUser?.email}
+              memberType={profile?.member_type || authUser?.member_type || 'Student'}
+              registrationNo={
+                profile?.registration_no || authUser?.registration_no
+              }
+              className={profile?.class_name || authUser?.class_name}
+              imageUrl={avatarUrl}
+              onPressPhoto={openPhotoActions}
+              uploading={isUploadingPhoto}
             />
-            <View style={{ flex: 1, gap: 4 }}>
-              <Text
-                style={{
-                  color: colors.text,
-                  fontSize: 20,
-                  fontWeight: '700',
-                }}
-              >
-                {displayName || 'Member'}
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
-                {profile?.email || authUser?.email}
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                {profile?.member_type || authUser?.member_type || 'Student'}
-              </Text>
-            </View>
-          </View>
-        </Card>
+          )}
+        </Animated.View>
 
-        <Card variant="elevated" padding="lg">
-          <View style={{ gap: 16 }}>
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 18,
-                fontWeight: '700',
+        <Animated.View entering={enter(90)} style={{ gap: sectionGap }}>
+          <ProfileSettingsGroup title="Account">
+            <ProfileSettingsRow
+              title="Change password"
+              subtitle={
+                passwordExpiry
+                  ? 'Required — your password has expired'
+                  : 'Update your sign-in password'
+              }
+              icon="lock-closed-outline"
+              onPress={() => navigateGuarded('/(student)/profile/password')}
+            />
+            <ProfileSettingsRow
+              title="Language"
+              subtitle="Choose your preferred language"
+              icon="language-outline"
+              disabled={passwordExpiry}
+              onPress={() => navigateGuarded('/(student)/profile/language')}
+              isLast
+            />
+          </ProfileSettingsGroup>
+
+          <ProfileSettingsGroup title="Preferences">
+            <ProfileSettingsRow
+              title="Appearance"
+              subtitle="Dark mode and display direction"
+              icon="color-palette-outline"
+              disabled={passwordExpiry}
+              onPress={() => navigateGuarded('/(student)/profile/appearance')}
+              isLast
+            />
+          </ProfileSettingsGroup>
+
+          <ProfileSettingsGroup title="Learning">
+            <ProfileSettingsRow
+              title="My progress"
+              subtitle="Curriculum, assessments, and live sessions"
+              icon="stats-chart-outline"
+              disabled={passwordExpiry}
+              onPress={() => navigateGuarded('/(student)/profile/progress')}
+              isLast={!enableSkills}
+            />
+            {enableSkills ? (
+              <>
+                <ProfileSettingsRow
+                  title="Skills"
+                  subtitle="Job title and interests"
+                  icon="briefcase-outline"
+                  disabled={passwordExpiry}
+                  onPress={() => navigateGuarded('/(student)/profile/skills')}
+                />
+                <ProfileSettingsRow
+                  title="Skill assessment"
+                  subtitle="Mark essential skills you have assessed"
+                  icon="checkbox-outline"
+                  disabled={passwordExpiry}
+                  onPress={() =>
+                    navigateGuarded('/(student)/profile/skill-assessment')
+                  }
+                  isLast
+                />
+              </>
+            ) : null}
+          </ProfileSettingsGroup>
+
+          <ProfileSettingsGroup title="Support">
+            <ProfileSettingsRow
+              title="Helpdesk"
+              subtitle="View and re-open your support tickets"
+              icon="help-buoy-outline"
+              disabled={passwordExpiry}
+              onPress={() => navigateGuarded('/(student)/profile/helpdesk')}
+              isLast
+            />
+          </ProfileSettingsGroup>
+
+          <ProfileSettingsGroup>
+            <ProfileSettingsRow
+              title={isLoggingOut ? 'Signing out…' : 'Log out'}
+              icon="log-out-outline"
+              destructive
+              showChevron={false}
+              disabled={isLoggingOut}
+              onPress={() => {
+                void handleLogout();
               }}
-            >
-              Personal Details
-            </Text>
-
-            <FormImagePicker
-              control={profileForm.control}
-              name="avatar_url"
-              label="Profile photo"
+              isLast
             />
-
-            <FormInput
-              control={profileForm.control}
-              name="first_name"
-              label="First name"
-              placeholder="First name"
-            />
-            <FormInput
-              control={profileForm.control}
-              name="last_name"
-              label="Last name"
-              placeholder="Last name"
-            />
-            <FormInput
-              control={profileForm.control}
-              name="email"
-              label="Email"
-              placeholder="you@example.com"
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <FormInput
-              control={profileForm.control}
-              name="phone"
-              label="Phone"
-              placeholder="Optional phone number"
-              keyboardType="phone-pad"
-            />
-
-            <Button
-              title="Save Changes"
-              onPress={handleSaveProfile}
-              loading={isSavingProfile}
-              fullWidth
-            />
-          </View>
-        </Card>
-
-        <Card variant="elevated" padding="lg">
-          <View style={{ gap: 16 }}>
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 18,
-                fontWeight: '700',
-              }}
-            >
-              Change Password
-            </Text>
-
-            <FormInput
-              control={passwordForm.control}
-              name="old_password"
-              label="Current password"
-              placeholder="Enter your current password"
-              secureTextEntry
-              autoCapitalize="none"
-            />
-            <FormInput
-              control={passwordForm.control}
-              name="new_password"
-              label="New password"
-              placeholder="Create a new password"
-              secureTextEntry
-              autoCapitalize="none"
-            />
-            <FormInput
-              control={passwordForm.control}
-              name="confirm_password"
-              label="Confirm password"
-              placeholder="Confirm the new password"
-              secureTextEntry
-              autoCapitalize="none"
-            />
-
-            <Button
-              title="Update Password"
-              onPress={handleChangePassword}
-              loading={isChangingPassword}
-              fullWidth
-            />
-          </View>
-        </Card>
-
-        <Card variant="elevated" padding="lg">
-          <View style={{ gap: 16 }}>
-            <Text
-              style={{
-                color: colors.text,
-                fontSize: 18,
-                fontWeight: '700',
-              }}
-            >
-              Settings
-            </Text>
-
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontSize: 15,
-                    fontWeight: '600',
-                  }}
-                >
-                  Dark mode
-                </Text>
-                <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                  Switch between light and dark appearance.
-                </Text>
-              </View>
-              <Switch
-                value={isDark}
-                onValueChange={toggleTheme}
-                trackColor={{ false: colors.border, true: colors.primary }}
-              />
-            </View>
-
-            <Button
-              title="Log Out"
-              onPress={handleLogout}
-              variant="outline"
-              fullWidth
-            />
-          </View>
-        </Card>
+          </ProfileSettingsGroup>
+        </Animated.View>
       </TabLayout>
     </ScreenLayout>
   );

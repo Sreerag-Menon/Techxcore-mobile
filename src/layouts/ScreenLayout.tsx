@@ -8,9 +8,11 @@ import {
 } from 'react-native';
 import {
   SafeAreaView,
+  useSafeAreaInsets,
   type Edge,
 } from 'react-native-safe-area-context';
 
+import { getFloatingTabBarScrollPadding } from '@/components/ui';
 import { useTheme } from '@/theme';
 import { useResponsive } from '@/hooks';
 
@@ -25,6 +27,11 @@ interface ScreenLayoutProps extends PropsWithChildren {
   maxContentWidth?: number;
   /** Safe area edges to respect. Use `['left','right']` to let content extend under the status bar. */
   safeAreaEdges?: Edge[];
+  /**
+   * When true, bottom padding clears the floating tab bar
+   * (height + gap + safe-area inset). Use on student/parent tab roots.
+   */
+  floatingTabBar?: boolean;
 }
 
 export default function ScreenLayout({
@@ -38,10 +45,18 @@ export default function ScreenLayout({
   style,
   maxContentWidth,
   safeAreaEdges = ['top', 'left', 'right'],
+  floatingTabBar = false,
 }: ScreenLayoutProps) {
   const { colors } = useTheme();
-  const { horizontalPadding } = useResponsive();
+  const insets = useSafeAreaInsets();
+  const { horizontalPadding, fluid } = useResponsive();
   const omitTopSafeArea = !safeAreaEdges.includes('top');
+
+  const defaultBottomPadding = floatingTabBar
+    ? getFloatingTabBarScrollPadding(insets.bottom)
+    : 32;
+  const resolvedMaxWidth = maxContentWidth ?? 1200;
+  const contentGap = fluid(16, 20);
 
   const refreshControl = onRefresh ? (
     <RefreshControl
@@ -58,8 +73,8 @@ export default function ScreenLayout({
       contentContainerStyle={[
         {
           paddingHorizontal: horizontalPadding,
-          paddingTop: omitTopSafeArea ? 0 : 16,
-          paddingBottom: 32,
+          paddingTop: omitTopSafeArea ? 0 : fluid(16, 24),
+          paddingBottom: defaultBottomPadding,
         },
         contentContainerStyle,
       ]}
@@ -69,10 +84,10 @@ export default function ScreenLayout({
     >
       <View
         style={{
-          maxWidth: maxContentWidth ?? 1200,
+          maxWidth: resolvedMaxWidth,
           width: '100%',
           alignSelf: 'center',
-          gap: 16,
+          gap: contentGap,
         }}
       >
         {header}
@@ -86,15 +101,17 @@ export default function ScreenLayout({
         {
           flex: 1,
           paddingHorizontal: horizontalPadding,
-          paddingTop: omitTopSafeArea ? 0 : 16,
-          paddingBottom: 24,
+          paddingTop: omitTopSafeArea ? 0 : fluid(16, 24),
+          paddingBottom: floatingTabBar
+            ? getFloatingTabBarScrollPadding(insets.bottom)
+            : 24,
         },
         contentContainerStyle,
       ]}
     >
       <View
         style={{
-          maxWidth: maxContentWidth ?? 1200,
+          maxWidth: resolvedMaxWidth,
           width: '100%',
           alignSelf: 'center',
           flex: 1,

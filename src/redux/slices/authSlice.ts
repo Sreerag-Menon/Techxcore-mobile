@@ -2,6 +2,7 @@ import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import type { AxiosError } from 'axios';
 
 import {
+  asBoolean,
   asNumber,
   asString,
   extractItem,
@@ -118,6 +119,12 @@ function normalizeLoginResponse(
   const session_id = asString(auth.sessionId);
   if (!token || !session_id) return null;
 
+  const languageId = asNumber(
+    data.active_language_id ?? data.activeLanguageId ?? data.language_id,
+    0,
+  );
+  const goiId = asNumber(data.goi_id ?? data.goiId, 0);
+
   return {
     token,
     session_id,
@@ -133,7 +140,10 @@ function normalizeLoginResponse(
     ),
     role_id: asNumber(data.role_id ?? data.member_role_id),
     profile_image: asString(
-      data.profile_image ?? data.avatar_url ?? data.member_image,
+      data.profile_image ??
+        data.avatar_url ??
+        data.member_image ??
+        data.photo,
     ),
     organization_name: asString(data.organization_name ?? data.org_name),
     campus_id: asNumber(data.campus_id),
@@ -141,6 +151,21 @@ function normalizeLoginResponse(
       const id = asNumber(data.acad_year_id ?? data.acadYearId, 0);
       return id > 0 ? id : undefined;
     })(),
+    registration_no: asString(
+      data.registration_no ?? data.registrationNo ?? data.reg_no,
+    ) || undefined,
+    class_name: asString(data.class_name ?? data.className) || undefined,
+    enable_skills: asBoolean(
+      data.enable_skills ?? data.enableSkills,
+      false,
+    ),
+    job_profile: asString(data.job_profile ?? data.jobProfile) || undefined,
+    password_expiry: asBoolean(
+      data.password_expiry ?? data.passwordExpiry,
+      false,
+    ),
+    active_language_id: languageId > 0 ? languageId : undefined,
+    goi_id: goiId > 0 ? goiId : undefined,
   };
 }
 

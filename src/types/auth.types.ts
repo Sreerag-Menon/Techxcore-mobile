@@ -20,6 +20,13 @@ export interface LoginResponse {
   organization_name?: string;
   campus_id?: number;
   acad_year_id?: number;
+  registration_no?: string;
+  class_name?: string;
+  enable_skills?: boolean;
+  job_profile?: string;
+  password_expiry?: boolean;
+  active_language_id?: number;
+  goi_id?: number;
 }
 
 export type LoginRejectReason =

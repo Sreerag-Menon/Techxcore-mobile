@@ -9,7 +9,7 @@
 export const APP_CONFIG = {
   /** Default/fallback API base URL – used during development or before tenant selection */
   DEFAULT_API_BASE_URL:
-    process.env.EXPO_PUBLIC_API_BASE_URL || 'https://5180-103-161-55-2.ngrok-free.app',
+    process.env.EXPO_PUBLIC_API_BASE_URL || 'https://d1e2-2403-a080-801-701e-9cb2-336a-4b80-a5cf.ngrok-free.app',
   /** Default API version – all tenants currently use v0.2 */
   DEFAULT_API_VERSION: process.env.EXPO_PUBLIC_API_VERSION || 'v0.2',
 
@@ -47,4 +47,10 @@ export const APP_CONFIG = {
   USER_KEY: 'user_data',
   /** AsyncStorage key for theme preference */
   THEME_KEY: 'theme_preference',
+  /** AsyncStorage key for text direction preference (ltr | rtl) */
+  DIRECTION_KEY: 'text_direction',
+  /** Minimum password length (matches web LMS) */
+  MIN_PASSWORD_LENGTH: 8,
+  /** Max profile photo size in bytes (2 MB, matches web) */
+  MAX_PROFILE_PHOTO_BYTES: 2_097_152,
 };

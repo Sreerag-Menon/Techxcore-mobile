@@ -5,6 +5,7 @@ import { View } from 'react-native';
 import { AssessmentPlayerScreen } from '../../../src/components/player/assessment/AssessmentPlayerScreen';
 import { ErrorState, LoadingScreen } from '../../../src/components';
 import { useGetTraineeAssessmentsListQuery } from '../../../src/redux/api/assessmentApi';
+import { logAssessment } from '../../../src/utils/assessmentDebugLog';
 
 export default function AssessmentScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -16,7 +17,14 @@ export default function AssessmentScreen() {
     const byPublish = assessments.find((a) => a.publishId === routeId);
     if (byPublish) return byPublish.publishId;
     const byTest = assessments.find((a) => a.testId === routeId);
-    return byTest?.publishId ?? routeId;
+    const resolved = byTest?.publishId ?? routeId;
+    logAssessment('route:publishId-resolved', {
+      routeId,
+      resolved,
+      matchedBy: byPublish ? 'publishId' : byTest ? 'testId' : 'fallback-routeId',
+      assessmentCount: assessments.length,
+    });
+    return resolved;
   }, [assessments, routeId]);
 
   if (isLoading && assessments.length === 0) {
